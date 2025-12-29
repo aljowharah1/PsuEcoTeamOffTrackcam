@@ -11,8 +11,8 @@ TOPIC = "car/telemetry"
 USERNAME = "ShellJM"
 PASSWORD = "psuEcoteam1st"
 
-# Load Attempt1.csv Data
-file_path = "data/2025/Attempt/Attempt1.csv"
+# Load Attempt2.csv Data
+file_path = "data/2025/Attempt/Attempt2.csv"
 
 print("Loading CSV data...")
 try:
@@ -48,7 +48,7 @@ def publish_data():
     client.loop_start()
     time.sleep(2)  # Wait for connection to establish
 
-    print(f"\n[START] Starting replay of Attempt1 data...")
+    print(f"\n[START] Starting replay of Attempt2 data...")
     print(f"[INFO] Publishing to topic: {TOPIC}")
     print(f"[INFO] {len(df)} packets to send\n")
 

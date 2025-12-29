@@ -5,6 +5,7 @@
    - Auto-start timer on movement
    - Idle detection (15 second pause)
    - Efficiency per lap tracking
+   - GPS FALLBACK MODE (offline support)
    ====================================================== */
 
 /* ====== CONFIG ====== */
@@ -18,19 +19,26 @@ const PACKET_MIN_MS = 90;   // ~11 FPS UI update rate
 const IDLE_THRESHOLD_MS = 15000; // 15 seconds idle detection
 const SPEED_MOVEMENT_THRESHOLD = 0.5; // km/h to consider "moving"
 
+// GPS Fallback Mode
+let gpsMode = false; // True when using phone GPS (offline fallback)
+let gpsWatchId = null;
+let lastGpsPosition = null;
+let lastGpsTime = null;
+
 /* ====== QATAR LUSAIL SHORT CIRCUIT DATA ====== */
 const LUSAIL_SHORT = {
-    center: [25.488435783, 51.450190017],
+    center: [25.488435783, 51.450190017], // Start/Finish line
+    stopLine: [25.49187893325, 51.4508796665], // Mandatory 5s midrace stop
     zoom: 17,
     turns: [
-        // Based on GPS bearing analysis from Attempt1.csv - only significant turns
-        { lat: 25.492879, lon: 51.447485, name: "TURN 1", type: "left" },
-        { lat: 25.493345, lon: 51.447801, name: "TURN 2", type: "left" },
-        { lat: 25.493382, lon: 51.448345, name: "TURN 3", type: "left" },
-        { lat: 25.491656, lon: 51.451190, name: "TURN 4", type: "right" },
-        { lat: 25.491361, lon: 51.451944, name: "TURN 5", type: "left" },
-        { lat: 25.489900, lon: 51.459162, name: "TURN 6", type: "left" },
-        { lat: 25.487006, lon: 51.458766, name: "TURN 7", type: "left" },
+        // Turn directions REVERSED (left = right, right = left)
+        { lat: 25.492879, lon: 51.447485, name: "TURN 1", type: "right" },
+        { lat: 25.493345, lon: 51.447801, name: "TURN 2", type: "right" },
+        { lat: 25.493382, lon: 51.448345, name: "TURN 3", type: "right" },
+        { lat: 25.491656, lon: 51.451190, name: "TURN 4", type: "left" },
+        { lat: 25.491361, lon: 51.451944, name: "TURN 5", type: "right" },
+        { lat: 25.489900, lon: 51.459162, name: "TURN 6", type: "right" },
+        { lat: 25.487006, lon: 51.458766, name: "TURN 7", type: "right" },
     ],
     outline: [
         [25.488720817, 51.450041667],
@@ -170,10 +178,21 @@ function initMap() {
         lineJoin: 'round'
     }).addTo(map);
 
-    // Draw START/FINISH line section in bright green (first ~5% of track)
+    // Draw START/FINISH line section in bright green (first 3 segments of track)
     const startFinishSegment = LUSAIL_SHORT.outline.slice(0, 3);
     L.polyline(startFinishSegment, {
         color: '#00ff88',
+        weight: 10,
+        opacity: 1,
+        smoothFactor: 2,
+        lineCap: 'round',
+        lineJoin: 'round'
+    }).addTo(map);
+
+    // Draw MANDATORY STOP line in red (segment 12-14, midrace)
+    const stopSegment = LUSAIL_SHORT.outline.slice(12, 15);
+    L.polyline(stopSegment, {
+        color: '#ff0000',
         weight: 10,
         opacity: 1,
         smoothFactor: 2,
@@ -335,17 +354,27 @@ function checkLapCompletion() {
     // Check if car has returned to start (lap completion)
     if (state.hasLeftStart && distFromStart < START_THRESHOLD) {
         // Lap completed!
-        const energySinceLapStart = state.energyWhAbs - state.lapStartEnergy;
+        const energyWhSinceLapStart = state.energyWhAbs - state.lapStartEnergy;
+        const energyKwhSinceLapStart = energyWhSinceLapStart / 1000; // Convert Wh to kWh
         const distSinceLapStart = state.distKmAbs - state.lapStartDist;
-        const efficiency = distSinceLapStart > 0 ? (energySinceLapStart / distSinceLapStart) : 0;
 
-        // Record lap efficiency
-        state.lapEfficiencies.push({
-            lap: state.currentLap,
-            efficiency: efficiency
-        });
+        // Efficiency: km/kWh = Distance (km) / Energy (kWh)
+        const efficiency = energyKwhSinceLapStart > 0 ? (distSinceLapStart / energyKwhSinceLapStart) : 0;
 
-        console.log(`[LAP] Lap ${state.currentLap} completed! Distance: ${distSinceLapStart.toFixed(2)} km, Efficiency: ${efficiency.toFixed(1)} Wh/km`);
+        console.log(`[LAP DEBUG] Total Energy: ${state.energyWhAbs.toFixed(2)} Wh, Lap Start Energy: ${state.lapStartEnergy.toFixed(2)} Wh`);
+        console.log(`[LAP DEBUG] Total Dist: ${state.distKmAbs.toFixed(3)} km, Lap Start Dist: ${state.lapStartDist.toFixed(3)} km`);
+        console.log(`[LAP DEBUG] Energy Used: ${energyWhSinceLapStart.toFixed(2)} Wh (${energyKwhSinceLapStart.toFixed(3)} kWh), Distance: ${distSinceLapStart.toFixed(3)} km`);
+
+        // Record lap efficiency (only if we have valid data)
+        if (efficiency > 0 && efficiency < 10000) {
+            state.lapEfficiencies.push({
+                lap: state.currentLap,
+                efficiency: efficiency
+            });
+            console.log(`[LAP] Lap ${state.currentLap} completed! Distance: ${distSinceLapStart.toFixed(2)} km, Efficiency: ${efficiency.toFixed(2)} km/kWh`);
+        } else {
+            console.log(`[LAP] Lap ${state.currentLap} completed but efficiency invalid: ${efficiency.toFixed(2)} km/kWh`);
+        }
 
         // Update UI
         updateEfficiencyList();
@@ -358,6 +387,11 @@ function checkLapCompletion() {
         state.lapStartDist = state.distKmAbs;
         state.lapStartEnergy = state.energyWhAbs;
         state.hasLeftStart = false; // Reset for next lap
+
+        // Clear heat map for new lap
+        state.heatMapPoints = [];
+        updateHeatMap();
+        console.log('[LAP] Heat map cleared for new lap');
     }
 }
 
@@ -375,7 +409,7 @@ function updateEfficiencyList() {
         div.className = 'efficiency-item';
         div.innerHTML = `
             <span class="efficiency-lap-label">LAP ${item.lap}</span>
-            <span class="efficiency-value">${item.efficiency.toFixed(1)} Wh/km</span>
+            <span class="efficiency-value">${item.efficiency.toFixed(2)} km/kWh</span>
         `;
         list.appendChild(div);
     });
@@ -409,7 +443,138 @@ function mqttConnect() {
         }
     });
 
-    client.on("error", err => console.error("MQTT error:", err));
+    client.on("error", err => {
+        console.error("MQTT error:", err);
+        // Activate GPS fallback if MQTT fails
+        if (!gpsMode) {
+            console.warn("⚠️ MQTT connection failed - switching to GPS fallback mode");
+            activateGPSFallback();
+        }
+    });
+
+    client.on("offline", () => {
+        console.warn("📡 MQTT offline - switching to GPS fallback mode");
+        if (!gpsMode) {
+            activateGPSFallback();
+        }
+    });
+}
+
+/* ====== GPS FALLBACK MODE ====== */
+function activateGPSFallback() {
+    gpsMode = true;
+    console.log("🛰️ GPS FALLBACK MODE ACTIVATED");
+    console.log("Using phone GPS for: Speed, Position, Laps, Timer");
+    console.log("Disabled: Current, Voltage, Power, Energy, Efficiency");
+
+    // Show GPS mode indicator
+    const gpsIndicator = document.getElementById('gpsModeIndicator');
+    if (gpsIndicator) {
+        gpsIndicator.style.display = 'block';
+    }
+
+    // Hide current display (no car data available)
+    const currentContainer = document.querySelector('.current-container');
+    if (currentContainer) {
+        currentContainer.style.display = 'none';
+    }
+
+    // Hide efficiency section (no energy data)
+    const efficiencySection = document.querySelector('.efficiency-section');
+    if (efficiencySection) {
+        efficiencySection.style.display = 'none';
+    }
+
+    // Check if geolocation is available
+    if (!navigator.geolocation) {
+        console.error("❌ Geolocation not supported by browser");
+        alert("GPS not available on this device");
+        return;
+    }
+
+    // Start watching GPS position
+    gpsWatchId = navigator.geolocation.watchPosition(
+        handleGPSPosition,
+        handleGPSError,
+        {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 5000
+        }
+    );
+}
+
+function handleGPSPosition(position) {
+    const currentTime = Date.now();
+    const lat = position.coords.latitude;
+    const lon = position.coords.longitude;
+    const gpsSpeed = position.coords.speed; // m/s or null
+
+    // Calculate speed from GPS
+    let speed = 0;
+    if (gpsSpeed !== null && gpsSpeed >= 0) {
+        // Use GPS-provided speed (convert m/s to km/h)
+        speed = gpsSpeed * 3.6;
+    } else if (lastGpsPosition && lastGpsTime) {
+        // Calculate speed from position change
+        const timeDiff = (currentTime - lastGpsTime) / 1000; // seconds
+        const distance = calculateDistance(
+            lastGpsPosition.latitude,
+            lastGpsPosition.longitude,
+            lat,
+            lon
+        ); // km
+        speed = timeDiff > 0 ? (distance / timeDiff) * 3600 : 0; // km/h
+    }
+
+    // Update state (GPS mode - no power/current/voltage data)
+    state.lat = lat;
+    state.lon = lon;
+    state.speed = speed;
+    state.rpm = speed * 50; // Estimate
+
+    // Update distance (accumulate)
+    if (lastGpsPosition && lastGpsTime) {
+        const distance = calculateDistance(
+            lastGpsPosition.latitude,
+            lastGpsPosition.longitude,
+            lat,
+            lon
+        );
+        state.distKmAbs += distance;
+    }
+
+    // Check idle state and manage timer
+    checkIdleState();
+
+    // Check lap completion
+    checkLapCompletion();
+
+    // Store current position for next calculation
+    lastGpsPosition = { latitude: lat, longitude: lon };
+    lastGpsTime = currentTime;
+
+    console.log(`[GPS] Speed: ${speed.toFixed(1)} km/h, Pos: (${lat.toFixed(6)}, ${lon.toFixed(6)})`);
+}
+
+function handleGPSError(error) {
+    console.error("GPS Error:", error.message);
+    if (error.code === error.PERMISSION_DENIED) {
+        alert("Please allow GPS access to use fallback mode");
+    }
+}
+
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    // Haversine formula to calculate distance between two GPS points
+    const R = 6371; // Earth radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
 }
 
 /* ====== TELEMETRY INGESTION ====== */
@@ -549,7 +714,8 @@ function updateMap() {
 
     const pos = [state.lat, state.lon];
     carMarker.setLatLng(pos);
-    map.panTo(pos, { animate: true, duration: 0.3, easeLinearity: 0.5 });
+    // Map stays fixed - doesn't follow the car
+    // No panning or zooming - map remains stationary
 }
 
 /* ====== SIMULATED DATA (for testing without MQTT) ====== */
