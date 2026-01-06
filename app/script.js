@@ -12,7 +12,17 @@
 const MQTT_URL = "wss://8fac0c92ea0a49b8b56f39536ba2fd78.s1.eu.hivemq.cloud:8884/mqtt";
 const MQTT_USER = "ShellJM";
 const MQTT_PASS = "psuEcoteam1st";
-const TOPIC = "car/telemetry";
+const TOPIC_TELEMETRY = "car/telemetry";
+const TOPIC_PI_GPS = "car/pi_gps";
+const TOPIC = TOPIC_TELEMETRY; // Legacy support
+
+// Racing Line API (deployed to Vercel or local)
+const RACING_LINE_API = "https://your-app.vercel.app/api/racing_line"; // Update with your deployment URL
+// const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
+
+// Pi Camera Stream
+const PI_STREAM_URL = "http://172.20.10.4:8001/stream";
+const PI_GPS_URL = "http://172.20.10.4:8001/gps";
 
 const TRACK_LAP_KM = 3.7;  // Lusail short circuit
 const PACKET_MIN_MS = 90;   // ~11 FPS UI update rate
@@ -102,6 +112,9 @@ const state = {
     distKmAbs: 0,
     lon: LUSAIL_SHORT.center[1],
     lat: LUSAIL_SHORT.center[0],
+    heading: 0,  // Car heading/bearing in degrees
+    prevLat: null,
+    prevLon: null,
 
     // Timer state
     timerRunning: false,
@@ -145,11 +158,17 @@ const el = {
     directionalHelper: document.getElementById('directionalHelper'),
     arrowLeft: document.getElementById('arrowLeft'),
     arrowRight: document.getElementById('arrowRight'),
-    arrowStraight: document.getElementById('arrowStraight')
+    arrowStraight: document.getElementById('arrowStraight'),
+    racingLineGuidance: document.getElementById('racingLineGuidance'),
+    targetSpeed: document.getElementById('targetSpeed'),
+    deviationValue: document.getElementById('deviationValue')
 };
 
 /* ====== MAP INITIALIZATION ====== */
-let map, carMarker, trackPolyline, heatLayer;
+let map, carMarker, trackPolyline, heatLayer, racingLineLayer;
+
+/* ====== RACING LINE DATA ====== */
+let racingLineData = null; // Will hold the ideal racing line from JSON
 
 function initMap() {
     // Initialize Leaflet map
@@ -203,6 +222,9 @@ function initMap() {
     // Initialize heat layer for current visualization
     heatLayer = L.layerGroup().addTo(map);
 
+    // Initialize racing line layer
+    racingLineLayer = L.layerGroup().addTo(map);
+
     // Custom car marker
     const carIcon = L.divIcon({
         className: 'car-marker',
@@ -235,6 +257,117 @@ function initMap() {
         map.invalidateSize();
         map.fitBounds(trackPolyline.getBounds(), { padding: [0, 0] });
     });
+}
+
+/* ====== RACING LINE FUNCTIONS ====== */
+async function loadRacingLine() {
+    try {
+        const response = await fetch('ideal_racing_line.json');
+        if (!response.ok) {
+            console.warn('⚠️ Racing line data not found - will operate without optimal line overlay');
+            return;
+        }
+        racingLineData = await response.json();
+        console.log('✅ Loaded racing line data:', racingLineData.metadata);
+        drawRacingLine();
+    } catch (error) {
+        console.warn('⚠️ Could not load racing line:', error.message);
+    }
+}
+
+function drawRacingLine() {
+    if (!racingLineData || !racingLineLayer) return;
+
+    racingLineLayer.clearLayers();
+
+    // Segment colors matching the notebook output
+    const segmentColors = {
+        'Q1': '#ff0000',  // Red
+        'Q2': '#0000ff',  // Blue
+        'Q3': '#00ff00',  // Green
+        'Q4': '#ffa500'   // Orange
+    };
+
+    // Draw each segment of the ideal line
+    racingLineData.segments.forEach(segment => {
+        const color = segmentColors[segment.name] || '#ff00ff';
+
+        // Draw the racing line path
+        if (segment.path && segment.path.length > 1) {
+            L.polyline(segment.path, {
+                color: color,
+                weight: 4,
+                opacity: 0.8,
+                dashArray: '10, 5',
+                lineCap: 'round',
+                lineJoin: 'round',
+                className: 'racing-line-segment'
+            }).addTo(racingLineLayer);
+
+            // Add segment start marker with speed target
+            const startPoint = segment.path[0];
+            L.circleMarker([startPoint[0], startPoint[1]], {
+                radius: 6,
+                fillColor: color,
+                color: '#ffffff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).bindPopup(`
+                <b>${segment.name}</b><br>
+                Target Speed: ${segment.target_speed_kmh} km/h<br>
+                Efficiency: ${segment.efficiency_km_kwh} km/kWh
+            `).addTo(racingLineLayer);
+        }
+    });
+
+    console.log(`✅ Drew racing line with ${racingLineData.segments.length} segments`);
+}
+
+function findNearestRacingLinePoint(lat, lon) {
+    if (!racingLineData) return null;
+
+    let minDist = Infinity;
+    let nearest = null;
+
+    racingLineData.racing_line.forEach(point => {
+        const dist = Math.sqrt(
+            Math.pow(lat - point.lat, 2) +
+            Math.pow(lon - point.lon, 2)
+        );
+        if (dist < minDist) {
+            minDist = dist;
+            nearest = point;
+        }
+    });
+
+    return nearest ? {
+        ...nearest,
+        deviation_m: minDist * 111000 // Convert degrees to meters (approximate)
+    } : null;
+}
+
+function updateRacingLineGuidance() {
+    if (!racingLineData || !el.racingLineGuidance) return;
+
+    const nearestPoint = findNearestRacingLinePoint(state.lat, state.lon);
+
+    if (nearestPoint) {
+        el.racingLineGuidance.style.display = 'block';
+        el.targetSpeed.textContent = `${nearestPoint.target_speed} km/h`;
+
+        const deviation = nearestPoint.deviation_m;
+        el.deviationValue.textContent = `${deviation.toFixed(1)}m`;
+
+        // Color code deviation - green if on line (<5m), red if off
+        if (deviation < 5) {
+            el.deviationValue.classList.remove('off-line');
+        } else {
+            el.deviationValue.classList.add('off-line');
+        }
+    } else {
+        el.racingLineGuidance.style.display = 'none';
+    }
 }
 
 /* ====== HEAT MAP FUNCTIONS ====== */
@@ -337,7 +470,8 @@ function checkIdleState() {
 function checkLapCompletion() {
     const START_LAT = LUSAIL_SHORT.center[0];
     const START_LON = LUSAIL_SHORT.center[1];
-    const START_THRESHOLD = 0.0003; // ~33 meters from start line
+    const LEAVE_THRESHOLD = 0.002; // ~220 meters - must go this far to count as "left"
+    const RETURN_THRESHOLD = 0.0003; // ~33 meters - must be this close to count as "returned"
 
     // Calculate distance from starting point
     const distFromStart = Math.sqrt(
@@ -345,14 +479,15 @@ function checkLapCompletion() {
         Math.pow(state.lon - START_LON, 2)
     );
 
-    // Check if car has left the starting area
-    if (!state.hasLeftStart && distFromStart > START_THRESHOLD) {
+    // Check if car has left the starting area (far enough away)
+    if (!state.hasLeftStart && distFromStart > LEAVE_THRESHOLD) {
         state.hasLeftStart = true;
-        console.log(`[LAP] Car has left starting area`);
+        console.log(`[LAP] Car has left starting area (${(distFromStart * 111000).toFixed(0)}m away)`);
     }
 
     // Check if car has returned to start (lap completion)
-    if (state.hasLeftStart && distFromStart < START_THRESHOLD) {
+    // Only count if car actually left AND is now close to start
+    if (state.hasLeftStart && distFromStart < RETURN_THRESHOLD) {
         // Lap completed!
         const energyWhSinceLapStart = state.energyWhAbs - state.lapStartEnergy;
         const energyKwhSinceLapStart = energyWhSinceLapStart / 1000; // Convert Wh to kWh
@@ -428,16 +563,31 @@ function mqttConnect() {
 
     client.on("connect", () => {
         console.log("✅ Connected to MQTT");
-        client.subscribe(TOPIC, err => {
-            if (err) console.error("Subscribe error:", err);
+        // Subscribe to telemetry from Joule meter
+        client.subscribe(TOPIC_TELEMETRY, err => {
+            if (err) console.error("Subscribe error (telemetry):", err);
+            else console.log("📡 Subscribed to", TOPIC_TELEMETRY);
+        });
+        // Subscribe to Pi GPS for video sync
+        client.subscribe(TOPIC_PI_GPS, err => {
+            if (err) console.error("Subscribe error (pi_gps):", err);
+            else console.log("📡 Subscribed to", TOPIC_PI_GPS);
         });
     });
 
     client.on("message", (topic, payload) => {
-        if (topic !== TOPIC) return;
         try {
             const data = JSON.parse(payload.toString());
-            ingestTelemetry(data);
+
+            if (topic === TOPIC_TELEMETRY) {
+                // Joule meter telemetry
+                syncBuffer.addTelemetry(data);
+                ingestTelemetry(data);
+            } else if (topic === TOPIC_PI_GPS) {
+                // Pi GPS for video sync
+                syncBuffer.addPiGps(data);
+                console.log("📍 Pi GPS:", data.latitude?.toFixed(6), data.longitude?.toFixed(6));
+            }
         } catch (e) {
             console.error("Parse error:", e);
         }
@@ -583,6 +733,26 @@ function num(x) {
     return Number.isFinite(v) ? v : 0;
 }
 
+function calculateHeading(lat1, lon1, lat2, lon2) {
+    /**
+     * Calculate heading/bearing between two GPS points in degrees.
+     * Returns 0-360 where 0=North, 90=East, 180=South, 270=West
+     */
+    const toRad = deg => deg * Math.PI / 180;
+    const toDeg = rad => rad * 180 / Math.PI;
+
+    const dLon = toRad(lon2 - lon1);
+    const lat1Rad = toRad(lat1);
+    const lat2Rad = toRad(lat2);
+
+    const x = Math.sin(dLon) * Math.cos(lat2Rad);
+    const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+              Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+
+    let heading = toDeg(Math.atan2(x, y));
+    return (heading + 360) % 360; // Normalize to 0-360
+}
+
 function ingestTelemetry(data) {
     const now = performance.now();
     if (state.t0 === null) state.t0 = now;
@@ -598,8 +768,20 @@ function ingestTelemetry(data) {
     state.speed = num(data.speed);
     state.rpm = num(data.rpm);
     state.distKmAbs = num(data.distance_km);
+
+    // Store previous position for heading calculation
+    if (state.lat && state.lon) {
+        state.prevLat = state.lat;
+        state.prevLon = state.lon;
+    }
+
     state.lon = num(data.longitude) || state.lon;
     state.lat = num(data.latitude) || state.lat;
+
+    // Calculate heading from movement
+    if (state.prevLat && state.prevLon && state.speed > 1) {
+        state.heading = calculateHeading(state.prevLat, state.prevLon, state.lat, state.lon);
+    }
 
     // Integrate energy
     if (dtH > 0 && state.power > -1e6 && state.power < 1e6) {
@@ -691,6 +873,12 @@ function paint() {
 
     // Update map
     updateMap();
+
+    // Update racing line guidance (map overlay)
+    updateRacingLineGuidance();
+
+    // Update racing line overlay on video canvas
+    updateRacingLineOverlay();
 }
 
 /* ====== UI UPDATE FUNCTIONS ====== */
@@ -699,8 +887,8 @@ function updateSpeedometer() {
     const speed = Math.round(state.speed);
     el.speedValue.textContent = speed;
 
-    // Update speed arc (circumference = 2πr = 754, max speed 200 km/h)
-    const maxSpeed = 200;
+    // Update speed arc (circumference = 2πr = 754, max speed 50 km/h)
+    const maxSpeed = 50;
     const percentage = Math.min(speed / maxSpeed, 1);
     const offset = 754 - (percentage * 754);
     el.speedArc.style.strokeDashoffset = offset;
@@ -760,12 +948,325 @@ function startSimulation() {
     }, 200);
 }
 
+/* ====== CAMERA FEED ====== */
+// Raspberry Pi camera stream URLs
+const PI_USB_STREAM_URL = 'http://172.20.10.4:8001/stream';     // USB Global Shutter Camera
+const PI_RIBBON_STREAM_URL = 'http://172.20.10.4:8000';         // Ribbon Camera (OV5647)
+
+let currentCameraSource = 'usb'; // 'usb' or 'ribbon'
+
+function initCamera() {
+    // Camera is already set via img src, just setup toggle buttons
+    setupCameraToggle();
+    initOverlayCanvas();
+    console.log('Camera initialized - Pi USB stream active');
+}
+
+function setupCameraToggle() {
+    const btnPiUSB = document.getElementById('btnPiUSB');
+    const btnPiRibbon = document.getElementById('btnPiRibbon');
+
+    if (btnPiUSB) {
+        btnPiUSB.addEventListener('click', () => {
+            if (currentCameraSource !== 'usb') {
+                switchCamera('usb');
+            }
+        });
+    }
+
+    if (btnPiRibbon) {
+        btnPiRibbon.addEventListener('click', () => {
+            if (currentCameraSource !== 'ribbon') {
+                switchCamera('ribbon');
+            }
+        });
+    }
+}
+
+function switchCamera(source) {
+    const imgElement = document.getElementById('cameraStream');
+    if (!imgElement) return;
+
+    const btnPiUSB = document.getElementById('btnPiUSB');
+    const btnPiRibbon = document.getElementById('btnPiRibbon');
+
+    // Update button states
+    if (btnPiUSB) btnPiUSB.classList.toggle('active', source === 'usb');
+    if (btnPiRibbon) btnPiRibbon.classList.toggle('active', source === 'ribbon');
+
+    // Switch stream source
+    if (source === 'usb') {
+        imgElement.src = PI_USB_STREAM_URL;
+        currentCameraSource = 'usb';
+        console.log('Switched to Pi USB Camera');
+    } else if (source === 'ribbon') {
+        imgElement.src = PI_RIBBON_STREAM_URL;
+        currentCameraSource = 'ribbon';
+        console.log('Switched to Pi Ribbon Camera');
+    }
+
+    // Show element in case it was hidden due to error
+    imgElement.style.display = 'block';
+}
+
+/* ====== SYNC BUFFER ====== */
+// Buffer to sync telemetry with video frames using GPS timestamps
+const syncBuffer = {
+    telemetry: [],      // From Joule meter (car/telemetry)
+    piGps: [],          // From Pi GPS (car/pi_gps)
+    maxSize: 100,       // Keep last 100 packets
+
+    addTelemetry(data) {
+        this.telemetry.push({
+            ...data,
+            receivedAt: Date.now()
+        });
+        if (this.telemetry.length > this.maxSize) {
+            this.telemetry.shift();
+        }
+    },
+
+    addPiGps(data) {
+        this.piGps.push({
+            ...data,
+            receivedAt: Date.now()
+        });
+        if (this.piGps.length > this.maxSize) {
+            this.piGps.shift();
+        }
+    },
+
+    // Get synced data - find closest telemetry to Pi GPS timestamp
+    getSyncedData() {
+        if (this.telemetry.length === 0) return null;
+
+        // Use latest telemetry
+        const latest = this.telemetry[this.telemetry.length - 1];
+
+        // If we have Pi GPS, cross-validate position
+        if (this.piGps.length > 0) {
+            const piLatest = this.piGps[this.piGps.length - 1];
+            // Could add position validation here
+            latest.piGps = piLatest;
+        }
+
+        return latest;
+    }
+};
+
+/* ====== RACING LINE OVERLAY ====== */
+let overlayCanvas = null;
+let overlayCtx = null;
+let lastOverlayData = null;
+let overlayEnabled = true;
+
+function initOverlayCanvas() {
+    overlayCanvas = document.getElementById('overlayCanvas');
+    if (!overlayCanvas) {
+        console.warn('Overlay canvas not found');
+        return;
+    }
+
+    overlayCtx = overlayCanvas.getContext('2d');
+
+    // Set canvas size to match video
+    function resizeCanvas() {
+        const container = overlayCanvas.parentElement;
+        overlayCanvas.width = container.offsetWidth;
+        overlayCanvas.height = container.offsetHeight;
+    }
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    console.log('Overlay canvas initialized');
+}
+
+async function fetchRacingLineOverlay(lat, lon, heading, speed) {
+    if (!overlayEnabled) return null;
+
+    try {
+        const response = await fetch(RACING_LINE_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                latitude: lat,
+                longitude: lon,
+                heading: heading,
+                speed: speed,
+                camera_width: overlayCanvas?.width || 1280,
+                camera_height: overlayCanvas?.height || 720
+            })
+        });
+
+        if (!response.ok) throw new Error('API error');
+
+        return await response.json();
+    } catch (error) {
+        // Fallback: use local calculation if API unavailable
+        return calculateLocalOverlay(lat, lon, heading);
+    }
+}
+
+// Local fallback overlay calculation (no API needed)
+function calculateLocalOverlay(lat, lon, heading) {
+    if (!LUSAIL_SHORT || !LUSAIL_SHORT.outline) return null;
+
+    // Find nearest point on track
+    let minDist = Infinity;
+    let nearestIdx = 0;
+
+    LUSAIL_SHORT.outline.forEach((point, idx) => {
+        const dist = Math.sqrt(
+            Math.pow(lat - point[0], 2) +
+            Math.pow(lon - point[1], 2)
+        );
+        if (dist < minDist) {
+            minDist = dist;
+            nearestIdx = idx;
+        }
+    });
+
+    // Get next points for overlay
+    const overlayPoints = [];
+    const canvasW = overlayCanvas?.width || 1280;
+    const canvasH = overlayCanvas?.height || 720;
+
+    for (let i = 0; i < 30; i++) {
+        const idx = (nearestIdx + i) % LUSAIL_SHORT.outline.length;
+        const point = LUSAIL_SHORT.outline[idx];
+
+        // Simple projection (approximate)
+        const pixel = projectToScreen(point[0], point[1], lat, lon, heading, canvasW, canvasH);
+        if (pixel) {
+            overlayPoints.push(pixel);
+        }
+    }
+
+    return {
+        overlay_points: overlayPoints,
+        target_speed: 30,
+        deviation_m: minDist * 111000,
+        segment: 'LOCAL',
+        on_track: minDist < 0.0001
+    };
+}
+
+function projectToScreen(targetLat, targetLon, carLat, carLon, carHeading, width, height) {
+    // Convert GPS delta to meters
+    const dx = (targetLon - carLon) * 111000 * Math.cos(carLat * Math.PI / 180);
+    const dy = (targetLat - carLat) * 111000;
+
+    // Rotate by heading
+    const headingRad = carHeading * Math.PI / 180;
+    const relX = dx * Math.cos(headingRad) + dy * Math.sin(headingRad);
+    const relY = -dx * Math.sin(headingRad) + dy * Math.cos(headingRad);
+
+    // Only show points ahead
+    if (relY <= 0.5 || relY > 40) return null;
+
+    // Simple perspective projection
+    const fovH = 118; // degrees
+    const fovV = 69;
+    const cameraHeight = 0.8; // meters
+
+    const angleH = Math.atan2(relX, relY) * 180 / Math.PI;
+    if (Math.abs(angleH) > fovH / 2) return null;
+
+    const angleV = Math.atan2(cameraHeight, relY) * 180 / Math.PI;
+
+    const px = Math.round(width / 2 + (angleH / (fovH / 2)) * (width / 2));
+    const py = Math.round(height / 2 + (angleV / (fovV / 2)) * (height / 2));
+
+    return [
+        Math.max(0, Math.min(px, width - 1)),
+        Math.max(0, Math.min(py, height - 1))
+    ];
+}
+
+function drawRacingLineOverlay(overlayData) {
+    if (!overlayCtx || !overlayData || !overlayData.overlay_points) return;
+
+    // Clear canvas
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    const points = overlayData.overlay_points;
+    if (points.length < 2) return;
+
+    // Draw racing line (green gradient)
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(points[0][0], points[0][1]);
+
+    for (let i = 1; i < points.length; i++) {
+        overlayCtx.lineTo(points[i][0], points[i][1]);
+    }
+
+    // Green glow effect
+    overlayCtx.strokeStyle = '#00ff88';
+    overlayCtx.lineWidth = 6;
+    overlayCtx.lineCap = 'round';
+    overlayCtx.lineJoin = 'round';
+    overlayCtx.shadowColor = '#00ff88';
+    overlayCtx.shadowBlur = 15;
+    overlayCtx.stroke();
+
+    // Inner white line
+    overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    overlayCtx.lineWidth = 2;
+    overlayCtx.shadowBlur = 0;
+    overlayCtx.stroke();
+
+    // Draw deviation indicator if off-line
+    if (overlayData.deviation_m > 3) {
+        const devText = `${overlayData.deviation_m.toFixed(1)}m OFF`;
+        overlayCtx.font = 'bold 24px Orbitron, sans-serif';
+        overlayCtx.fillStyle = overlayData.deviation_m > 5 ? '#ff4444' : '#ffaa00';
+        overlayCtx.shadowColor = '#000';
+        overlayCtx.shadowBlur = 4;
+        overlayCtx.fillText(devText, overlayCanvas.width / 2 - 60, 50);
+    }
+
+    // Draw target speed
+    if (overlayData.target_speed) {
+        overlayCtx.font = 'bold 20px Orbitron, sans-serif';
+        overlayCtx.fillStyle = '#00ff88';
+        overlayCtx.fillText(`TARGET: ${overlayData.target_speed} km/h`, 20, overlayCanvas.height - 30);
+    }
+}
+
+// Update overlay on each telemetry packet
+async function updateRacingLineOverlay() {
+    if (!overlayEnabled || !state.lat || !state.lon) return;
+
+    // Calculate heading from recent movement
+    let heading = state.heading || 0;
+
+    // Fetch/calculate overlay
+    const overlayData = await fetchRacingLineOverlay(
+        state.lat,
+        state.lon,
+        heading,
+        state.speed
+    );
+
+    if (overlayData) {
+        lastOverlayData = overlayData;
+        drawRacingLineOverlay(overlayData);
+    }
+}
+
 /* ====== INITIALIZATION ====== */
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("🏁 PSU Racing Dashboard - Mobile (Enhanced)");
+    console.log("🏁 PSU Racing Dashboard - Mobile (Enhanced) - HUD Mode with Racing Line + Camera");
+
+    // Initialize camera feed first
+    initCamera();
 
     // Initialize map
     initMap();
+
+    // Load racing line data
+    loadRacingLine();
 
     // Connect to MQTT
     mqttConnect();
