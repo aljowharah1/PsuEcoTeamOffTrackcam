@@ -1,0 +1,69 @@
+@startuml MQTT Topology
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Arial
+
+' PSU Eco Team Orange Theme
+skinparam cloud {
+    BackgroundColor #FFF3E0
+    BorderColor #F07D00
+}
+skinparam node {
+    BackgroundColor #FFE4CC
+    BorderColor #F07D00
+}
+skinparam component {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam arrow {
+    Color #F07D00
+}
+
+title <color:#F07D00><b>MQTT Communication Topology</b></color>
+
+cloud "<color:#F07D00><b>HiveMQ Cloud</b></color>\n8fac0c92ea0a49b8b56f39536ba2fd78.s1.eu.hivemq.cloud:8883" as broker #FFF3E0 {
+}
+
+node "<color:#F07D00><b>Raspberry Pi 5</b></color>\n(Publisher)" as pi {
+    [GPS Reader] as gps
+    [Telemetry\nForwarder] as telem
+}
+
+node "<color:#F07D00><b>Driver Dashboard</b></color>\n(Subscriber)" as dash {
+    [Telemetry\nDisplay] as display
+    [Racing Line\nOverlay] as overlay
+}
+
+node "<color:#F07D00><b>Pit Crew Monitor</b></color>\n(Subscriber)" as pit {
+    [Live Stats\nPanel] as stats
+}
+
+' Topics
+pi -[#F07D00]-> broker : <color:#F07D00><b>car/pi_gps</b></color>\n{lat, lon, speed, heading,\naltitude, satellites}
+
+pi -[#F07D00]-> broker : <color:#F07D00><b>car/telemetry</b></color>\n{rpm, voltage, current,\ndistance, energy}
+
+broker -[#F07D00]-> dash : Subscribe:\ncar/pi_gps\ncar/telemetry
+
+broker -[#F07D00]-> pit : Subscribe:\ncar/telemetry
+
+note bottom of broker #FFF8F0
+    <color:#F07D00><b>TLS Encrypted (Port 8883)</b></color>
+    QoS 0 for real-time data
+    QoS 1 for critical alerts
+end note
+
+note right of dash #FFF8F0
+    <color:#F07D00><b>Dashboard Updates:</b></color>
+    - Speed gauge
+    - Energy consumption
+    - Racing line deviation
+    - Segment efficiency
+end note
+
+@enduml

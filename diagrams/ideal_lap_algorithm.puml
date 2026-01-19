@@ -1,0 +1,75 @@
+@startuml Ideal Lap Construction
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Arial
+
+' PSU Eco Team Orange Theme
+skinparam activity {
+    BackgroundColor #FFF3E0
+    BorderColor #F07D00
+    FontColor #333333
+    DiamondBackgroundColor #FFE4CC
+    DiamondBorderColor #F07D00
+}
+skinparam partition {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam arrow {
+    Color #F07D00
+}
+
+title <color:#F07D00><b>Ideal Lap Construction Algorithm</b></color>
+
+start
+
+#FFE4CC:Load all recorded laps\nfrom session data;
+
+#FFE4CC:Segment Track into\n4 Quadrants (Q1-Q4);
+note right #FFF8F0
+    <color:#F07D00><b>Track Segments:</b></color>
+    Q1: Start/Finish Straight
+    Q2: Technical Section
+    Q3: Back Straight
+    Q4: Final Corners
+end note
+
+#FFE4CC:Calculate efficiency score\nfor each segment;
+note left #FFF8F0
+    <color:#F07D00><b>Formula:</b></color>
+    efficiency = distance / energy_used
+    (km/kWh equivalent)
+end note
+
+partition "<color:#F07D00>For Each Segment</color>" {
+    #FFC499:Rank all drivers'\nsegment performances;
+
+    #FFC499:Select best efficiency\nfor segment;
+
+    #FFC499:Extract GPS trace\nfor winning segment;
+
+    #FFC499:Calculate target speed\nfrom best run;
+}
+
+#FFE4CC:Stitch segments together\nat quadrant boundaries;
+
+#FFE4CC:Smooth transitions\nbetween segments;
+note right #FFF8F0
+    <color:#F07D00><b>Method:</b></color>
+    Bezier interpolation
+    at junction points
+end note
+
+#F07D00:Generate racing_line.json|
+
+#FFE4CC:Deploy to Vercel API;
+
+#FFE4CC:Calculate pixel projections\nfor camera overlay;
+
+stop
+
+@enduml

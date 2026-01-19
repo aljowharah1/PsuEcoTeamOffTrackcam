@@ -1,0 +1,45 @@
+@startuml Continuous Improvement Cycle
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Arial
+
+' PSU Eco Team Orange Theme
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+
+title <color:#F07D00><b>Data-Driven Continuous Improvement Flywheel</b></color>
+
+' Simple linear flow with wrap-around - BLACK titles
+rectangle "<color:#000000><size:16><b>RACE</b></size></color>\nDrive on track" as race #F07D00
+rectangle "<color:#000000><size:16><b>COLLECT</b></size></color>\nGather telemetry" as collect #FF9933
+rectangle "<color:#000000><size:16><b>ANALYZE</b></size></color>\nProcess data" as analyze #FFB366
+rectangle "<color:#000000><size:16><b>OPTIMIZE</b></size></color>\nFind improvements" as optimize #FFCC99
+rectangle "<color:#000000><size:16><b>UPDATE</b></size></color>\nRefine racing line" as update #FFE4CC
+
+' Simple sequential arrows - ORANGE
+race -[#F07D00,bold]right-> collect
+collect -[#F07D00,bold]right-> analyze
+analyze -[#F07D00,bold]down-> optimize
+optimize -[#F07D00,bold]left-> update
+update -[#F07D00,bold]left-> race
+
+note bottom of race #FFF8F0
+    <color:#F07D00><b>Live Data:</b></color>
+    GPS, speed, energy
+end note
+
+note bottom of analyze #FFF8F0
+    <color:#F07D00><b>Insights:</b></color>
+    Segment efficiency
+    Best performances
+end note
+
+note bottom of update #FFF8F0
+    <color:#F07D00><b>Output:</b></color>
+    New ideal lap
+    Target speeds
+end note
+
+@enduml

@@ -1,0 +1,71 @@
+@startuml Data Flow
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Arial
+
+' PSU Eco Team Orange Theme
+skinparam participant {
+    BackgroundColor #FFF3E0
+    BorderColor #F07D00
+    FontColor #333333
+}
+skinparam actor {
+    BackgroundColor #F07D00
+    BorderColor #F07D00
+}
+skinparam database {
+    BackgroundColor #FFE4CC
+    BorderColor #F07D00
+}
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam sequence {
+    ArrowColor #F07D00
+    LifeLineBorderColor #F07D00
+    LifeLineBackgroundColor #FFF3E0
+    DividerBorderColor #F07D00
+    DividerBackgroundColor #FFE4CC
+}
+
+title <color:#F07D00><b>PSU Racing - Real-Time Data Flow</b></color>
+
+actor "Driver" as driver #F07D00
+participant "Dashboard\n(Phone)" as dash
+participant "Raspberry Pi 5" as pi
+participant "HiveMQ Cloud" as mqtt
+participant "Vercel API" as api
+database "Historical\nData" as hist
+
+== <color:#F07D00>Camera Stream (Local Network)</color> ==
+pi -> dash : MJPEG Stream\nhttp://172.20.10.4:8001/stream
+note right: 1280x720 @ 30fps\nJPEG Quality 80%
+
+== <color:#F07D00>GPS Telemetry Flow</color> ==
+pi -> pi : Parse NMEA\n(GPGGA, GPRMC)
+pi -> mqtt : Publish car/pi_gps\n{lat, lon, speed, heading}
+mqtt -> dash : Subscribe car/pi_gps
+
+== <color:#F07D00>Joulemeter Telemetry Flow</color> ==
+pi -> mqtt : Publish car/telemetry\n{rpm, voltage, current, distance}
+mqtt -> dash : Subscribe car/telemetry
+
+== <color:#F07D00>Racing Line Overlay</color> ==
+dash -> api : POST /api/racing_line\n{lat, lon, heading, speed}
+api -> api : Calculate overlay points\nHaversine + Projection
+api --> dash : {overlay_points, target_speed,\ndeviation_m, segment}
+
+== <color:#F07D00>Sync Buffer Correlation</color> ==
+dash -> dash : correlateData()\nMatch GPS timestamps\nwith Joulemeter readings
+note right
+    syncBuffer stores last
+    10 entries for each source
+    Correlates within 500ms window
+end note
+
+== <color:#F07D00>Post-Race Analysis</color> ==
+driver -> hist : Upload session data
+hist -> api : Generate ideal lap\nfrom best segments
+
+@enduml

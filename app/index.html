@@ -46,34 +46,9 @@
                 </div>
             </div>
 
-            <!-- Center Panel: Racing Line Guidance Only (keep middle clear for camera view) -->
+            <!-- Center Panel: Keep empty for racing line overlay on camera -->
             <div class="center-panel">
-                <!-- Racing Line Guidance (top center) -->
-                <div id="racingLineGuidance" class="racing-line-guidance" style="display: none;">
-                    <div class="guidance-indicator">
-                        <div class="target-speed-label">TARGET</div>
-                        <div class="target-speed-value" id="targetSpeed">--</div>
-                        <div class="deviation-indicator">
-                            <span class="deviation-label">DEVIATION:</span>
-                            <span class="deviation-value" id="deviationValue">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Directional Helper (Center when turn approaching) -->
-                <div id="directionalHelper" class="directional-helper" style="display: none;">
-                    <svg class="arrow-svg" viewBox="0 0 100 100">
-                        <!-- Left Arrow -->
-                        <path id="arrowLeft" class="arrow-path"
-                            d="M 60 20 L 20 50 L 60 80 L 60 60 L 90 60 L 90 40 L 60 40 Z" display="none" />
-                        <!-- Right Arrow -->
-                        <path id="arrowRight" class="arrow-path"
-                            d="M 40 20 L 80 50 L 40 80 L 40 60 L 10 60 L 10 40 L 40 40 Z" display="none" />
-                        <!-- Straight Arrow -->
-                        <path id="arrowStraight" class="arrow-path"
-                            d="M 20 60 L 50 20 L 80 60 L 60 60 L 60 90 L 40 90 L 40 60 Z" display="none" />
-                    </svg>
-                </div>
+                <!-- Center area intentionally empty for racing line visualization -->
             </div>
 
             <!-- Right Panel: Speedometer only at bottom right -->
@@ -135,8 +110,51 @@
                 </div>
             </div>
 
+            <!-- Settings Button (bottom right corner) -->
+            <div id="settingsBtn" onclick="toggleSettings()" style="position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background: rgba(228, 120, 20, 0.8); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 1000; pointer-events: auto;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+                </svg>
+            </div>
+
+            <!-- Settings Panel (hidden by default) -->
+            <div id="settingsPanel" style="display: none; position: fixed; bottom: 80px; right: 20px; background: rgba(0,0,0,0.95); border: 2px solid #E47814; border-radius: 12px; padding: 20px; z-index: 1001; pointer-events: auto; min-width: 200px;">
+                <div style="color: #E47814; font-family: 'Orbitron', sans-serif; font-size: 14px; margin-bottom: 15px; font-weight: bold;">SYSTEM CONTROL</div>
+                <button onclick="restartStreamer()" style="width: 100%; padding: 12px; margin-bottom: 10px; background: #E47814; color: white; border: none; border-radius: 8px; font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: bold; cursor: pointer;">RESTART STREAM</button>
+                <button onclick="rebootPi()" style="width: 100%; padding: 12px; background: #ff4444; color: white; border: none; border-radius: 8px; font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: bold; cursor: pointer;">REBOOT PI</button>
+                <div id="statusMsg" style="color: #888; font-size: 12px; margin-top: 10px; text-align: center;"></div>
+            </div>
+
         </div>
     </div>
+
+    <script>
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function restartStreamer() {
+            document.getElementById('statusMsg').textContent = 'Restarting...';
+            fetch('/system/restart')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('statusMsg').textContent = 'Restarting stream...';
+                    setTimeout(() => location.reload(), 3000);
+                })
+                .catch(e => document.getElementById('statusMsg').textContent = 'Error: ' + e);
+        }
+
+        function rebootPi() {
+            if (confirm('Reboot the Raspberry Pi?')) {
+                document.getElementById('statusMsg').textContent = 'Rebooting...';
+                fetch('/system/reboot')
+                    .then(r => r.json())
+                    .then(d => document.getElementById('statusMsg').textContent = 'Pi rebooting... wait 30s')
+                    .catch(e => document.getElementById('statusMsg').textContent = 'Error: ' + e);
+            }
+        }
+    </script>
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

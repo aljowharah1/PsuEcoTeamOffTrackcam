@@ -1,0 +1,102 @@
+@startuml System Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+
+' PSU Eco Team Orange Theme
+skinparam component {
+    BackgroundColor #FFF3E0
+    BorderColor #F07D00
+    FontColor #333333
+}
+skinparam package {
+    BorderColor #F07D00
+    FontColor #F07D00
+}
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam arrow {
+    Color #F07D00
+}
+skinparam rectangle {
+    BorderColor #F07D00
+    BackgroundColor #FFF8F0
+}
+
+title <color:#F07D00><b>PSU Racing - System Architecture</b></color>
+
+package "Layer 1: Sensor Layer" #FFF3E0 {
+
+    rectangle "<color:#F07D00><b>Sensor System 1: Joulemeter</b></color>\n(Vehicle Telemetry)" as SS1 {
+        [Joulemeter ECU\n<size:10>Measures: Voltage, Current, Power</size>] as JM
+        [Vehicle GPS] as GPS_V
+        [Wheel Encoder] as WHEEL
+    }
+
+    rectangle "<color:#F07D00><b>Sensor System 2: Pi Camera</b></color>\n(Vision & Sync)" as SS2 {
+        [USB Global\nShutter Camera] as CAM
+        [GPS Module\n(Pi)] as GPS_PI
+    }
+}
+
+package "Layer 2: Processing Layer" #FFE4CC {
+    [Raspberry Pi 5] as PI
+    [Vercel Serverless\n(Racing Line API)] as VERCEL
+
+    note right of PI
+        - GPS-Camera Sync
+        - MJPEG Encoding
+        - NMEA Parsing
+        - Timestamp Correlation
+    end note
+
+    note right of VERCEL
+        - Racing Line Calc
+        - GPS-to-Pixel Projection
+        - Deviation Analysis
+    end note
+}
+
+package "Layer 3: Communication Layer" #FFD4B3 {
+    [HiveMQ Cloud\nMQTT Broker] as MQTT
+    [HTTP MJPEG\nStream (Port 8001)] as HTTP
+    [REST API\n(/api/racing_line)] as REST
+}
+
+package "Layer 4: Display Layer" #FFC499 {
+    [Driver Dashboard\n(Phone/Tablet)] as DASH
+    [Pit Crew Monitor] as PIT
+}
+
+' Sensor System 1 connections
+JM --> PI : Serial/USB\n(V, A, W, speed, GPS)
+GPS_V --> JM : Position
+WHEEL --> JM : RPM, Distance
+
+' Sensor System 2 connections
+CAM --> PI : USB\n(1280x720 frames)
+GPS_PI --> PI : UART\n(NMEA sentences)
+
+' Processing connections
+PI --> MQTT : Publish\ncar/telemetry\ncar/pi_gps
+PI --> HTTP : MJPEG\nFrames
+VERCEL --> REST : JSON\nResponse
+
+' Communication to Display
+MQTT --> DASH : Subscribe
+HTTP --> DASH : Video\nStream
+REST --> DASH : Overlay\nPoints
+MQTT --> PIT : Subscribe
+
+legend right
+  <color:#F07D00><b>Two Sensor Systems:</b></color>
+  |= System |= Measures |
+  | Joulemeter | Voltage, Current, Power, Speed, GPS |
+  | Pi Camera + GPS | Video frames, Timestamps |
+end legend
+
+@enduml

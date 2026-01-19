@@ -160,8 +160,8 @@ body {
     position: absolute;
     top: 10px;
     left: 10px;
-    width: 170px;
-    height: 150px;
+    width: 120px;
+    height: 110px;
     display: flex;
     flex-direction: column;
     pointer-events: auto;

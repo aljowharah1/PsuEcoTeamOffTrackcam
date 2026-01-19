@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/racing_line.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "app/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/racing_line",
+      "dest": "/api/racing_line.py"
+    },
+    {
+      "src": "/app/(.*)",
+      "dest": "/app/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/app/$1"
+    }
+  ]
+}

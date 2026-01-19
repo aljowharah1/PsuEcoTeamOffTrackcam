@@ -2,8 +2,8 @@
    PSU RACING DASHBOARD - MOBILE (ENHANCED)
    Features:
    - Heat map for current draw on track
-   - Auto-start timer on movement
-   - Idle detection (15 second pause)
+   - Auto-start timer on movement (no manual button needed)
+   - Auto-stop after 35 min OR 30 sec idle
    - Efficiency per lap tracking
    - GPS FALLBACK MODE (offline support)
    ====================================================== */
@@ -17,7 +17,7 @@ const TOPIC_PI_GPS = "car/pi_gps";
 const TOPIC = TOPIC_TELEMETRY; // Legacy support
 
 // Racing Line API (deployed to Vercel or local)
-const RACING_LINE_API = "https://your-app.vercel.app/api/racing_line"; // Update with your deployment URL
+const RACING_LINE_API = "https://psu-ecoteam-offtrack-award.vercel.app/api/racing_line";
 // const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
 
 // Pi Camera Stream
@@ -26,7 +26,7 @@ const PI_GPS_URL = "http://172.20.10.4:8001/gps";
 
 const TRACK_LAP_KM = 3.7;  // Lusail short circuit
 const PACKET_MIN_MS = 90;   // ~11 FPS UI update rate
-const IDLE_THRESHOLD_MS = 15000; // 15 seconds idle detection
+const IDLE_THRESHOLD_MS = 30000; // 30 seconds idle = auto-stop session
 const SPEED_MOVEMENT_THRESHOLD = 0.5; // km/h to consider "moving"
 
 // GPS Fallback Mode
@@ -269,7 +269,8 @@ async function loadRacingLine() {
         }
         racingLineData = await response.json();
         console.log('✅ Loaded racing line data:', racingLineData.metadata);
-        drawRacingLine();
+        // Racing line will only show on video overlay, not on map
+        // drawRacingLine();
     } catch (error) {
         console.warn('⚠️ Could not load racing line:', error.message);
     }
@@ -1262,6 +1263,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize camera feed first
     initCamera();
 
+    // Initialize overlay canvas for racing line
+    initOverlayCanvas();
+
     // Initialize map
     initMap();
 
@@ -1273,9 +1277,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Uncomment for testing without real MQTT data:
     // setTimeout(startSimulation, 2000);
-
-    // Hide turn instruction initially
-    hideTurnInstruction();
 
     // Initial render
     requestFrame();

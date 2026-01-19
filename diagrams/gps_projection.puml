@@ -1,0 +1,99 @@
+@startuml GPS to Pixel Projection
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Arial
+
+' PSU Eco Team Orange Theme
+skinparam activity {
+    BackgroundColor #FFF3E0
+    BorderColor #F07D00
+    FontColor #333333
+    DiamondBackgroundColor #FFE4CC
+    DiamondBorderColor #F07D00
+}
+skinparam partition {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam note {
+    BackgroundColor #FFF8F0
+    BorderColor #F07D00
+}
+skinparam arrow {
+    Color #F07D00
+}
+
+title <color:#F07D00><b>GPS-to-Pixel Coordinate Projection</b></color>
+
+start
+
+#FFE4CC:Receive current position\n(lat, lon, heading, speed);
+
+#FFE4CC:Find nearest point\non racing line;
+note right #FFF8F0
+    <color:#F07D00><b>Haversine formula:</b></color>
+    d = 2R × arcsin(√(sin²(Δlat/2) +
+        cos(lat1)×cos(lat2)×sin²(Δlon/2)))
+end note
+
+#FFE4CC:Calculate deviation\nfrom ideal line (meters);
+
+partition "<color:#F07D00>For Next 60 Points</color>" #FFF8F0 {
+    #FFC499:Get racing line point\n(target_lat, target_lon);
+
+    #FFC499:Calculate relative position;
+    note right #FFF8F0
+        <color:#F07D00><b>Distance calc:</b></color>
+        dx = haversine(car_lat, car_lon,
+                       car_lat, target_lon) × 1000
+        dy = haversine(car_lat, car_lon,
+                       target_lat, car_lon) × 1000
+    end note
+
+    #FFC499:Rotate by car heading;
+    note right #FFF8F0
+        <color:#F07D00><b>Rotation:</b></color>
+        rel_x = dx×cos(θ) + dy×sin(θ)
+        rel_y = -dx×sin(θ) + dy×cos(θ)
+    end note
+
+    if (<color:#F07D00>Point in front\nand < 40m?</color>) then (<color:#F07D00>yes</color>)
+        #FFE4CC:Calculate angular position;
+        note right #FFF8F0
+            <color:#F07D00><b>Angles:</b></color>
+            angle_h = atan2(rel_x, rel_y)
+            angle_v = atan2(camera_height, rel_y)
+        end note
+
+        if (<color:#F07D00>Within camera FOV?</color>) then (<color:#F07D00>yes</color>)
+            #FFE4CC:Convert to pixel coords;
+            note right #FFF8F0
+                <color:#F07D00><b>Pixel mapping:</b></color>
+                px = width/2 + (angle_h / FOV_H) × width/2
+                py = height/2 + (angle_v / FOV_V) × height/2
+            end note
+
+            #F07D00:Add to overlay_points[];
+        else (<color:#999999>no</color>)
+            #EEEEEE:Skip point;
+        endif
+    else (<color:#999999>no</color>)
+        #EEEEEE:Skip point;
+    endif
+}
+
+#F07D00:Return overlay response|
+note right #FFF8F0
+    <color:#F07D00><b>Response JSON:</b></color>
+    {
+      overlay_points: [[x1,y1], [x2,y2]...],
+      target_speed: 28.5,
+      deviation_m: 2.3,
+      segment: "Q2",
+      on_track: true
+    }
+end note
+
+stop
+
+@enduml
