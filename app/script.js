@@ -20,9 +20,11 @@ const TOPIC = TOPIC_TELEMETRY; // Legacy support
 const RACING_LINE_API = "https://psu-ecoteam-offtrack-award.vercel.app/api/racing_line";
 // const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
 
-// Pi Camera Stream
-const PI_STREAM_URL = "http://172.20.10.4:8001/stream";
-const PI_GPS_URL = "http://172.20.10.4:8001/gps";
+// Pi Camera Stream - Auto-detect Pi IP from current page URL
+const PI_HOST = window.location.hostname || "172.20.10.2";
+const PI_PORT = window.location.port || "8001";
+const PI_STREAM_URL = `http://${PI_HOST}:${PI_PORT}/stream`;
+const PI_GPS_URL = `http://${PI_HOST}:${PI_PORT}/gps`;
 
 const TRACK_LAP_KM = 3.7;  // Lusail short circuit
 const PACKET_MIN_MS = 90;   // ~11 FPS UI update rate
@@ -950,14 +952,19 @@ function startSimulation() {
 }
 
 /* ====== CAMERA FEED ====== */
-// Raspberry Pi camera stream URLs
-const PI_USB_STREAM_URL = 'http://172.20.10.4:8001/stream';     // USB Global Shutter Camera
-const PI_RIBBON_STREAM_URL = 'http://172.20.10.4:8000';         // Ribbon Camera (OV5647)
+// Raspberry Pi camera stream URLs - Auto-detect from current page URL
+const PI_USB_STREAM_URL = `http://${PI_HOST}:8001/stream`;     // USB Global Shutter Camera
+const PI_RIBBON_STREAM_URL = `http://${PI_HOST}:8000`;         // Ribbon Camera (OV5647)
 
 let currentCameraSource = 'usb'; // 'usb' or 'ribbon'
 
 function initCamera() {
-    // Camera is already set via img src, just setup toggle buttons
+    // Set camera stream URL dynamically based on current hostname
+    const imgElement = document.getElementById('cameraStream');
+    if (imgElement) {
+        imgElement.src = PI_USB_STREAM_URL;
+        console.log('Camera URL set to:', PI_USB_STREAM_URL);
+    }
     setupCameraToggle();
     initOverlayCanvas();
     console.log('Camera initialized - Pi USB stream active');
