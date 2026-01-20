@@ -220,6 +220,16 @@ def gps_to_pixel(target_lat, target_lon, car_lat, car_lon, car_heading,
 
     return [px, py]
 
+def interpolate_points(p1_lat, p1_lon, p2_lat, p2_lon, num_steps=5):
+    """Interpolate between two GPS points to create a denser line."""
+    points = []
+    for i in range(num_steps + 1):
+        t = i / num_steps
+        lat = p1_lat + t * (p2_lat - p1_lat)
+        lon = p1_lon + t * (p2_lon - p1_lon)
+        points.append((lat, lon))
+    return points
+
 def calculate_overlay(lat, lon, heading, speed, cam_width=1280, cam_height=720):
     """
     Calculate overlay points for the ideal racing line.
@@ -241,22 +251,31 @@ def calculate_overlay(lat, lon, heading, speed, cam_width=1280, cam_height=720):
             'on_track': False
         }
 
-    # Get next N points on racing line (lookahead)
+    # Get next N points on racing line (lookahead) with interpolation
     overlay_points = []
-    num_points = min(60, len(RACING_LINE) - nearest_idx)
+    num_points = min(30, len(RACING_LINE))  # Look at more track segments
 
-    for i in range(nearest_idx, nearest_idx + num_points):
-        idx = i % len(RACING_LINE)  # Wrap around for closed track
-        point = RACING_LINE[idx]
+    for i in range(num_points - 1):
+        idx1 = (nearest_idx + i) % len(RACING_LINE)
+        idx2 = (nearest_idx + i + 1) % len(RACING_LINE)
+        p1 = RACING_LINE[idx1]
+        p2 = RACING_LINE[idx2]
 
-        pixel = gps_to_pixel(
-            point['lat'], point['lon'],
-            lat, lon, heading,
-            cam_width, cam_height
+        # Interpolate between consecutive track points
+        interp_points = interpolate_points(
+            p1['lat'], p1['lon'],
+            p2['lat'], p2['lon'],
+            num_steps=10  # 10 points between each GPS coordinate
         )
 
-        if pixel:
-            overlay_points.append(pixel)
+        for interp_lat, interp_lon in interp_points:
+            pixel = gps_to_pixel(
+                interp_lat, interp_lon,
+                lat, lon, heading,
+                cam_width, cam_height
+            )
+            if pixel:
+                overlay_points.append(pixel)
 
     # Get current segment info
     segment = SEGMENTS[nearest_point['segment_id']] if SEGMENTS else {}
