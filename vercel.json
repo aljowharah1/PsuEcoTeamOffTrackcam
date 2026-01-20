@@ -1,27 +1,18 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/racing_line.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "app/**",
-      "use": "@vercel/static"
+  "functions": {
+    "api/racing_line.py": {
+      "runtime": "@vercel/python@3.0.7"
     }
-  ],
+  },
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Accept" },
-        { "key": "Access-Control-Max-Age", "value": "86400" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Accept" }
       ]
     }
-  ],
-  "rewrites": [
-    { "source": "/app/:path*", "destination": "/app/:path*" }
   ]
 }
