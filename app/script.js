@@ -21,7 +21,7 @@ const RACING_LINE_API = "https://psu-ecoteam-offtrack-award.vercel.app/api/racin
 // const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
 
 // Pi Camera Stream - Auto-detect Pi IP from current page URL
-const PI_HOST = window.location.hostname || "172.20.10.2";
+const PI_HOST = window.location.hostname || "172.20.10.4";
 const PI_PORT = window.location.port || "8001";
 const PI_STREAM_URL = `http://${PI_HOST}:${PI_PORT}/stream`;
 const PI_GPS_URL = `http://${PI_HOST}:${PI_PORT}/gps`;
@@ -584,6 +584,12 @@ function mqttConnect() {
 
             if (topic === TOPIC_TELEMETRY) {
                 // Joule meter telemetry
+                console.log("📊 MQTT Telemetry received:", {
+                    speed: data.speed,
+                    voltage: data.voltage,
+                    current: data.current,
+                    distance_km: data.distance_km
+                });
                 syncBuffer.addTelemetry(data);
                 ingestTelemetry(data);
             } else if (topic === TOPIC_PI_GPS) {
@@ -772,6 +778,8 @@ function ingestTelemetry(data) {
     state.rpm = num(data.rpm);
     state.distKmAbs = num(data.distance_km);
 
+    console.log("📥 ingestTelemetry() - Updated state.speed to:", state.speed, "from data.speed:", data.speed);
+
     // Store previous position for heading calculation
     if (state.lat && state.lon) {
         state.prevLat = state.lat;
@@ -888,6 +896,7 @@ function paint() {
 
 function updateSpeedometer() {
     const speed = Math.round(state.speed);
+    console.log("🔄 updateSpeedometer() - state.speed:", state.speed, "rounded:", speed);
     el.speedValue.textContent = speed;
 
     // Update speed arc (circumference = 2πr = 754, max speed 50 km/h)
@@ -957,17 +966,78 @@ const PI_USB_STREAM_URL = `http://${PI_HOST}:8001/stream`;     // USB Global Shu
 const PI_RIBBON_STREAM_URL = `http://${PI_HOST}:8000`;         // Ribbon Camera (OV5647)
 
 let currentCameraSource = 'usb'; // 'usb' or 'ribbon'
+let cameraRetryCount = 0;
+const MAX_CAMERA_RETRIES = 10;
+const CAMERA_RETRY_DELAY_MS = 2000;
 
 function initCamera() {
-    // Set camera stream URL dynamically based on current hostname
     const imgElement = document.getElementById('cameraStream');
-    if (imgElement) {
-        imgElement.src = PI_USB_STREAM_URL;
-        console.log('Camera URL set to:', PI_USB_STREAM_URL);
+    if (!imgElement) {
+        console.warn('Camera stream element not found');
+        return;
     }
+
+    // Track if stream has ever successfully loaded
+    let streamEstablished = false;
+    let initialLoadTimeout = null;
+
+    // Set up load handler - show image when MJPEG stream establishes
+    imgElement.onload = () => {
+        streamEstablished = true;
+        imgElement.style.display = 'block';
+        cameraRetryCount = 0; // Reset retry count on success
+        if (initialLoadTimeout) {
+            clearTimeout(initialLoadTimeout);
+            initialLoadTimeout = null;
+        }
+        console.log('Camera stream loaded successfully');
+    };
+
+    // Set up error handler with retry logic
+    // IMPORTANT: For MJPEG streams, onerror can fire before stream establishes
+    imgElement.onerror = () => {
+        // Only hide and retry if stream was never established
+        // MJPEG streams may briefly error during connection handshake
+        if (!streamEstablished) {
+            imgElement.style.display = 'none';
+            cameraRetryCount++;
+
+            if (cameraRetryCount <= MAX_CAMERA_RETRIES) {
+                console.warn(`Camera stream error, retrying (${cameraRetryCount}/${MAX_CAMERA_RETRIES})...`);
+                setTimeout(() => {
+                    // Cache-bust to prevent browser caching failed stream
+                    imgElement.src = PI_USB_STREAM_URL + '?t=' + Date.now();
+                }, CAMERA_RETRY_DELAY_MS);
+            } else {
+                console.error('Camera stream failed after max retries');
+            }
+        } else {
+            // Stream was working, this is a disconnect - retry immediately
+            console.warn('Camera stream disconnected, reconnecting...');
+            setTimeout(() => {
+                imgElement.src = PI_USB_STREAM_URL + '?t=' + Date.now();
+            }, 1000);
+        }
+    };
+
+    // Start loading the stream immediately (no delay needed)
+    console.log('Camera URL set to:', PI_USB_STREAM_URL);
+    imgElement.src = PI_USB_STREAM_URL;
+
+    // Give MJPEG stream extra time to establish before considering it failed
+    // This handles the race condition where onerror fires before stream connects
+    initialLoadTimeout = setTimeout(() => {
+        if (!streamEstablished && imgElement.naturalWidth > 0) {
+            // Stream actually loaded but onload didn't fire (rare edge case)
+            streamEstablished = true;
+            imgElement.style.display = 'block';
+            console.log('Camera stream detected via naturalWidth check');
+        }
+    }, 3000);
+
     setupCameraToggle();
     initOverlayCanvas();
-    console.log('Camera initialized - Pi USB stream active');
+    console.log('Camera initialized with retry logic');
 }
 
 function setupCameraToggle() {
@@ -1002,19 +1072,22 @@ function switchCamera(source) {
     if (btnPiUSB) btnPiUSB.classList.toggle('active', source === 'usb');
     if (btnPiRibbon) btnPiRibbon.classList.toggle('active', source === 'ribbon');
 
-    // Switch stream source
+    // Reset retry count when manually switching
+    cameraRetryCount = 0;
+
+    // Switch stream source with cache-bust
+    const timestamp = Date.now();
     if (source === 'usb') {
-        imgElement.src = PI_USB_STREAM_URL;
+        imgElement.src = PI_USB_STREAM_URL + '?t=' + timestamp;
         currentCameraSource = 'usb';
         console.log('Switched to Pi USB Camera');
     } else if (source === 'ribbon') {
-        imgElement.src = PI_RIBBON_STREAM_URL;
+        imgElement.src = PI_RIBBON_STREAM_URL + '?t=' + timestamp;
         currentCameraSource = 'ribbon';
         console.log('Switched to Pi Ribbon Camera');
     }
 
-    // Show element in case it was hidden due to error
-    imgElement.style.display = 'block';
+    // Image will be shown via onload handler when stream establishes
 }
 
 /* ====== SYNC BUFFER ====== */

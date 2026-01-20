@@ -28,7 +28,8 @@
     <div class="video-container">
         <!-- Raspberry Pi USB Camera MJPEG Stream (background layer) -->
         <!-- URL set dynamically by script.js based on current hostname -->
-        <img id="cameraStream" class="camera-feed" src="" alt="Pi USB Camera Stream" onerror="this.style.display='none'">
+        <!-- Note: onerror removed - handled in script.js with retry logic -->
+        <img id="cameraStream" class="camera-feed" src="" alt="Pi USB Camera Stream" style="display:none;">
         <!-- Canvas overlay for racing line -->
         <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
     </div>
