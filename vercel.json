@@ -21,19 +21,8 @@
       ]
     }
   ],
-  "routes": [
-    {
-      "src": "/api/racing_line",
-      "methods": ["GET", "POST", "OPTIONS"],
-      "dest": "/api/racing_line.py"
-    },
-    {
-      "src": "/app/(.*)",
-      "dest": "/app/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/app/$1"
-    }
+  "rewrites": [
+    { "source": "/app/:path*", "destination": "/app/:path*" },
+    { "source": "/:path*", "destination": "/app/:path*" }
   ]
 }
