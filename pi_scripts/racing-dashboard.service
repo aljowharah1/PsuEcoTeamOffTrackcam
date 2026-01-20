@@ -1,0 +1,19 @@
+[Unit]
+Description=PSU Racing Dashboard - Camera Stream and Recording
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/racing
+ExecStart=/usr/bin/python3 /home/pi/racing/gps_sync_streamer.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

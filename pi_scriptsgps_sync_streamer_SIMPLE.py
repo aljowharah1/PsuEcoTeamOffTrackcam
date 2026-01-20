@@ -15,20 +15,17 @@ import json
 import time
 import threading
 import serial
-import os
-import signal
 from datetime import datetime, timezone
 from flask import Flask, Response
 import paho.mqtt.client as mqtt
 
 # ============== CONFIGURATION ==============
 # Camera settings
-CAMERA_DEVICE = "/dev/video0"  # USB Global Shutter Camera
+CAMERA_DEVICE = "/dev/video8"  # USB Global Shutter Camera
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
-JPEG_QUALITY = 70  # Reduced for better streaming performance
-STREAM_FPS = 20  # Limit stream to 20fps to reduce lag
+JPEG_QUALITY = 80
 
 # GPS settings
 GPS_PORT = "/dev/serial0"  # GPIO UART
@@ -44,12 +41,6 @@ MQTT_TOPIC_GPS = "car/pi_gps"
 
 # HTTP Stream settings
 HTTP_PORT = 8001
-
-# Video Recording settings
-ENABLE_RECORDING = True  # Set to False to disable recording
-RECORDING_DIR = "/home/pi/racing/recordings"  # Where to save videos
-RECORDING_CODEC = "mp4v"  # MP4 codec
-RECORDING_FORMAT = ".mp4"  # File format
 
 # ============== GLOBAL STATE ==============
 class GPSState:
@@ -84,12 +75,6 @@ gps_state = GPSState()
 frame_counter = 0
 current_frame = None
 frame_lock = threading.Lock()
-
-# Video recording state
-video_writer = None
-recording_active = False
-recording_filename = None
-recording_lock = threading.Lock()
 
 # ============== NMEA PARSER ==============
 def parse_nmea(sentence):
@@ -245,66 +230,6 @@ def publish_gps():
         data["source"] = "pi_gps"
         mqtt_client.publish(MQTT_TOPIC_GPS, json.dumps(data), qos=0)
 
-# ============== VIDEO RECORDING ==============
-def start_recording():
-    """Start recording video to file."""
-    global video_writer, recording_active, recording_filename
-
-    with recording_lock:
-        if recording_active:
-            print("[REC] Recording already active")
-            return False
-
-        # Create recordings directory if it doesn't exist
-        import os
-        os.makedirs(RECORDING_DIR, exist_ok=True)
-
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        recording_filename = f"{RECORDING_DIR}/race_{timestamp}{RECORDING_FORMAT}"
-
-        # Create VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*RECORDING_CODEC)
-        video_writer = cv2.VideoWriter(
-            recording_filename,
-            fourcc,
-            CAMERA_FPS,
-            (CAMERA_WIDTH, CAMERA_HEIGHT)
-        )
-
-        if not video_writer.isOpened():
-            print(f"[REC] Failed to open VideoWriter: {recording_filename}")
-            video_writer = None
-            return False
-
-        recording_active = True
-        print(f"[REC] Recording started: {recording_filename}")
-        return True
-
-def stop_recording():
-    """Stop recording video."""
-    global video_writer, recording_active, recording_filename
-
-    with recording_lock:
-        if not recording_active:
-            print("[REC] No active recording to stop")
-            return False
-
-        if video_writer:
-            video_writer.release()
-            video_writer = None
-
-        recording_active = False
-        print(f"[REC] Recording stopped: {recording_filename}")
-        saved_file = recording_filename
-        recording_filename = None
-        return saved_file
-
-def is_recording():
-    """Check if currently recording."""
-    with recording_lock:
-        return recording_active
-
 # ============== CAMERA CAPTURE ==============
 def camera_capture_thread():
     """Thread to capture camera frames."""
@@ -312,19 +237,13 @@ def camera_capture_thread():
 
     print(f"[CAM] Opening camera {CAMERA_DEVICE}...")
 
-    # Try to open camera with V4L2 backend (more reliable on Pi)
-    cap = cv2.VideoCapture(CAMERA_DEVICE, cv2.CAP_V4L2)
+    cap = cv2.VideoCapture(CAMERA_DEVICE)
+    if not cap.isOpened():
+        # Try numeric device
+        cap = cv2.VideoCapture(8)
 
     if not cap.isOpened():
-        print(f"[CAM] Failed with {CAMERA_DEVICE}, trying numeric device 0...")
-        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-
-    if not cap.isOpened():
-        print("[CAM] Failed with device 0, trying device 1...")
-        cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
-
-    if not cap.isOpened():
-        print("[CAM] Failed to open camera on any device!")
+        print("[CAM] Failed to open camera!")
         return
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
@@ -353,11 +272,6 @@ def camera_capture_thread():
         with frame_lock:
             current_frame = frame.copy()
 
-        # Write frame to video file if recording
-        with recording_lock:
-            if recording_active and video_writer:
-                video_writer.write(frame)
-
         # Publish GPS data periodically
         now = time.time()
         if now - last_mqtt_time >= mqtt_interval:
@@ -373,17 +287,7 @@ def generate_mjpeg():
     """Generate MJPEG stream with GPS metadata."""
     global current_frame
 
-    frame_time = 1.0 / STREAM_FPS  # Time between frames for FPS limiting
-    last_frame_time = 0
-
     while True:
-        # FPS limiting
-        now = time.time()
-        if now - last_frame_time < frame_time:
-            time.sleep(0.001)
-            continue
-        last_frame_time = now
-
         with frame_lock:
             if current_frame is None:
                 time.sleep(0.01)
@@ -400,7 +304,7 @@ def generate_mjpeg():
         # cv2.putText(frame, f"Speed: {gps_data['speed_kmh']:.1f} km/h",
         #             (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-        # Encode frame with optimized JPEG settings
+        # Encode frame
         ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ret:
             continue
@@ -451,97 +355,14 @@ def status():
         "mqtt": {
             "connected": mqtt_client.is_connected() if mqtt_client else False,
             "broker": MQTT_BROKER
-        },
-        "recording": {
-            "active": is_recording(),
-            "filename": recording_filename,
-            "enabled": ENABLE_RECORDING
         }
     })
-
-@app.route('/recording/start')
-def recording_start():
-    """Start video recording."""
-    if not ENABLE_RECORDING:
-        return json.dumps({"success": False, "error": "Recording disabled in config"})
-
-    success = start_recording()
-    return json.dumps({
-        "success": success,
-        "filename": recording_filename if success else None
-    })
-
-@app.route('/recording/stop')
-def recording_stop():
-    """Stop video recording."""
-    filename = stop_recording()
-    return json.dumps({
-        "success": filename is not False,
-        "filename": filename
-    })
-
-@app.route('/recording/status')
-def recording_status():
-    """Get recording status."""
-    return json.dumps({
-        "active": is_recording(),
-        "filename": recording_filename,
-        "enabled": ENABLE_RECORDING
-    })
-
-# ============== PORT MANAGEMENT ==============
-def kill_port_conflicts(port):
-    """Kill any process using the specified port."""
-    try:
-        # Use lsof to find process using the port
-        result = os.popen(f"lsof -ti:{port}").read().strip()
-        if result:
-            pids = result.split('\n')
-            for pid in pids:
-                if pid:
-                    try:
-                        os.kill(int(pid), signal.SIGTERM)
-                        print(f"[PORT] Killed process {pid} using port {port}")
-                        time.sleep(0.5)
-                    except ProcessLookupError:
-                        pass  # Process already dead
-            # Wait for port to be released
-            time.sleep(1)
-    except Exception as e:
-        print(f"[PORT] Error checking port {port}: {e}")
-
-def kill_camera_users():
-    """Kill any process using the camera device."""
-    try:
-        # Find processes using video devices
-        result = os.popen(f"fuser {CAMERA_DEVICE} 2>/dev/null").read().strip()
-        if result:
-            pids = result.split()
-            for pid in pids:
-                if pid:
-                    try:
-                        os.kill(int(pid), signal.SIGTERM)
-                        print(f"[CAM] Killed process {pid} using camera")
-                        time.sleep(0.5)
-                    except (ProcessLookupError, ValueError):
-                        pass
-            time.sleep(1)
-    except Exception as e:
-        print(f"[CAM] Error checking camera: {e}")
 
 # ============== MAIN ==============
 def main():
     print("=" * 50)
     print("  PSU Racing - GPS-Synced Camera Streamer")
     print("=" * 50)
-
-    # Kill any existing process on port 8001
-    print(f"[PORT] Checking for conflicts on port {HTTP_PORT}...")
-    kill_port_conflicts(HTTP_PORT)
-
-    # Kill any process using the camera
-    print(f"[CAM] Checking for camera conflicts...")
-    kill_camera_users()
 
     # Start GPS reader thread
     gps_thread = threading.Thread(target=gps_reader_thread, daemon=True)
@@ -557,31 +378,13 @@ def main():
     cam_thread = threading.Thread(target=camera_capture_thread, daemon=True)
     cam_thread.start()
 
-    # Wait for camera to initialize
-    time.sleep(2)
-
-    # Auto-start recording if enabled
-    if ENABLE_RECORDING:
-        start_recording()
-        print("[REC] Auto-started recording on boot")
-
     # Start HTTP server
     print(f"\n[HTTP] Starting server on port {HTTP_PORT}...")
     print(f"[HTTP] Stream URL: http://172.20.10.4:{HTTP_PORT}/stream")
     print(f"[HTTP] Status URL: http://172.20.10.4:{HTTP_PORT}/status")
-    print(f"[HTTP] Start recording: http://172.20.10.4:{HTTP_PORT}/recording/start")
-    print(f"[HTTP] Stop recording: http://172.20.10.4:{HTTP_PORT}/recording/stop")
-    if ENABLE_RECORDING:
-        print(f"[REC] Recording enabled - videos will be saved to: {RECORDING_DIR}")
     print("\nPress Ctrl+C to stop.\n")
 
-    try:
-        app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
-    except KeyboardInterrupt:
-        print("\n[SYSTEM] Shutting down...")
-        if is_recording():
-            stop_recording()
-        print("[SYSTEM] Goodbye!")
+    app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
 
 if __name__ == '__main__':
     main()
