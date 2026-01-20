@@ -260,56 +260,64 @@ def calculate_overlay(lat, lon, heading, speed, cam_width=1280, cam_height=720):
     }
 
 # ============== VERCEL SERVERLESS HANDLER ==============
-from flask import Flask, request, jsonify
+from http.server import BaseHTTPRequestHandler
+import urllib.parse
 
-app = Flask(__name__)
+class handler(BaseHTTPRequestHandler):
+    def _send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Accept')
+        self.send_header('Access-Control-Max-Age', '86400')
 
-# CORS headers for all responses
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
-    response.headers['Access-Control-Max-Age'] = '86400'
-    return response
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
-app.after_request(add_cors_headers)
-
-@app.route('/api/racing_line', methods=['GET', 'POST', 'OPTIONS'])
-def racing_line_handler():
-    # Handle CORS preflight
-    if request.method == 'OPTIONS':
-        return '', 204
-
-    # Handle GET - health check
-    if request.method == 'GET':
+    def do_GET(self):
         load_racing_line()
-        return jsonify({
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self._send_cors_headers()
+        self.end_headers()
+
+        info = {
             'service': 'PSU Racing Line Overlay API',
             'racing_line_points': len(RACING_LINE) if RACING_LINE else 0,
             'segments': len(SEGMENTS) if SEGMENTS else 0,
             'usage': 'POST with {latitude, longitude, heading, speed, camera_width, camera_height}'
-        })
+        }
+        self.wfile.write(json.dumps(info).encode())
 
-    # Handle POST - calculate overlay
-    try:
-        data = request.get_json()
+    def do_POST(self):
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
 
-        lat = data.get('latitude', 0)
-        lon = data.get('longitude', 0)
-        heading = data.get('heading', 0)
-        speed = data.get('speed', 0)
-        cam_width = data.get('camera_width', 1280)
-        cam_height = data.get('camera_height', 720)
+            lat = data.get('latitude', 0)
+            lon = data.get('longitude', 0)
+            heading = data.get('heading', 0)
+            speed = data.get('speed', 0)
+            cam_width = data.get('camera_width', 1280)
+            cam_height = data.get('camera_height', 720)
 
-        result = calculate_overlay(lat, lon, heading, speed, cam_width, cam_height)
-        return jsonify(result)
+            result = calculate_overlay(lat, lon, heading, speed, cam_width, cam_height)
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
 
-# Vercel handler
-def handler(environ, start_response):
-    return app(environ, start_response)
+        except Exception as e:
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
 
 # Initialize on import
 load_racing_line()
