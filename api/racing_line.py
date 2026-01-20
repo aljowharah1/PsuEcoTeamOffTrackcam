@@ -162,10 +162,10 @@ def find_nearest_point(lat, lon):
 
 # ============== CAMERA PROJECTION ==============
 # GoPro / Wide angle camera settings
-CAMERA_HEIGHT_M = 0.8       # Height from ground
-CAMERA_FOV_H = 118          # Horizontal FOV degrees
-CAMERA_FOV_V = 69           # Vertical FOV degrees
-LOOKAHEAD_M = 40            # How far ahead to project
+CAMERA_HEIGHT_M = 0.5       # Height from ground (lower = line appears higher)
+CAMERA_FOV_H = 120          # Horizontal FOV degrees (wide angle)
+CAMERA_FOV_V = 90           # Vertical FOV degrees
+LOOKAHEAD_M = 100           # How far ahead to project (increased for longer line)
 
 def gps_to_pixel(target_lat, target_lon, car_lat, car_lon, car_heading,
                  cam_width=1280, cam_height=720):
@@ -196,15 +196,27 @@ def gps_to_pixel(target_lat, target_lon, car_lat, car_lon, car_heading,
     if abs(angle_h) > CAMERA_FOV_H / 2:
         return None  # Outside horizontal FOV
 
-    angle_v = math.degrees(math.atan2(CAMERA_HEIGHT_M, rel_y))
+    # Perspective projection - closer points appear lower on screen
+    # Use inverse distance for proper perspective (closer = lower on screen)
+    perspective_factor = 1.0 / rel_y  # Inverse distance
 
-    # Convert angles to pixel coordinates
+    # Horizontal position based on angle
     px = int(cam_width / 2 + (angle_h / (CAMERA_FOV_H / 2)) * (cam_width / 2))
-    py = int(cam_height / 2 + (angle_v / (CAMERA_FOV_V / 2)) * (cam_height / 2))
+
+    # Vertical position: horizon at ~40% from top, ground line at bottom
+    # Points far away are near horizon, close points are near bottom
+    horizon_y = cam_height * 0.4  # Horizon line
+    ground_y = cam_height * 0.95  # Bottom of visible ground
+
+    # Map distance to vertical position (perspective)
+    # Near points (rel_y close to 0.5) -> near ground_y
+    # Far points (rel_y close to LOOKAHEAD_M) -> near horizon_y
+    distance_ratio = (rel_y - 0.5) / (LOOKAHEAD_M - 0.5)
+    py = int(ground_y - (distance_ratio * (ground_y - horizon_y)))
 
     # Clamp to frame bounds
     px = max(0, min(px, cam_width - 1))
-    py = max(0, min(py, cam_height - 1))
+    py = max(int(horizon_y), min(py, cam_height - 1))
 
     return [px, py]
 
