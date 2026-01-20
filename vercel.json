@@ -22,7 +22,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/app/:path*", "destination": "/app/:path*" },
-    { "source": "/:path*", "destination": "/app/:path*" }
+    { "source": "/app/:path*", "destination": "/app/:path*" }
   ]
 }
