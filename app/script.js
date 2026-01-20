@@ -584,12 +584,6 @@ function mqttConnect() {
 
             if (topic === TOPIC_TELEMETRY) {
                 // Joule meter telemetry
-                console.log("📊 MQTT Telemetry received:", {
-                    speed: data.speed,
-                    voltage: data.voltage,
-                    current: data.current,
-                    distance_km: data.distance_km
-                });
                 syncBuffer.addTelemetry(data);
                 ingestTelemetry(data);
             } else if (topic === TOPIC_PI_GPS) {
@@ -778,8 +772,6 @@ function ingestTelemetry(data) {
     state.rpm = num(data.rpm);
     state.distKmAbs = num(data.distance_km);
 
-    console.log("📥 ingestTelemetry() - Updated state.speed to:", state.speed, "from data.speed:", data.speed);
-
     // Store previous position for heading calculation
     if (state.lat && state.lon) {
         state.prevLat = state.lat;
@@ -896,7 +888,6 @@ function paint() {
 
 function updateSpeedometer() {
     const speed = Math.round(state.speed);
-    console.log("🔄 updateSpeedometer() - state.speed:", state.speed, "rounded:", speed);
     el.speedValue.textContent = speed;
 
     // Update speed arc (circumference = 2πr = 754, max speed 50 km/h)

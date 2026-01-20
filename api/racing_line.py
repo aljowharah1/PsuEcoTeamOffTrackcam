@@ -260,8 +260,27 @@ def calculate_overlay(lat, lon, heading, speed, cam_width=1280, cam_height=720):
         'speed_diff': round(nearest_point.get('target_speed', 0) - speed, 1)
     }
 
+# ============== CORS HEADERS ==============
+CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    'Access-Control-Max-Age': '86400',
+}
+
 # ============== VERCEL HANDLER ==============
 class handler(BaseHTTPRequestHandler):
+    def _send_cors_headers(self):
+        """Send CORS headers on every response."""
+        for header, value in CORS_HEADERS.items():
+            self.send_header(header, value)
+
+    def do_OPTIONS(self):
+        """Handle CORS preflight - MUST come before other methods."""
+        self.send_response(204)  # No Content
+        self._send_cors_headers()
+        self.end_headers()
+
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
@@ -280,13 +299,14 @@ class handler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
 
         except Exception as e:
             self.send_response(400)
             self.send_header('Content-Type', 'application/json')
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(json.dumps({'error': str(e)}).encode())
 
@@ -296,7 +316,7 @@ class handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_cors_headers()
         self.end_headers()
 
         info = {
@@ -306,14 +326,6 @@ class handler(BaseHTTPRequestHandler):
             'usage': 'POST with {latitude, longitude, heading, speed, camera_width, camera_height}'
         }
         self.wfile.write(json.dumps(info).encode())
-
-    def do_OPTIONS(self):
-        """Handle CORS preflight."""
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
 
 # Initialize on import
 load_racing_line()
