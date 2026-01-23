@@ -20,11 +20,22 @@ const TOPIC = TOPIC_TELEMETRY; // Legacy support
 const RACING_LINE_API = "https://psu-eco-team-off-trackcam-i5pq.vercel.app/api/racing_line";
 // const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
 
+// ====== CAMERA CONFIGURATION ======
+// Set to true for GoPro Hero 7, false for Raspberry Pi camera
+const USE_GOPRO = true;
+
+// GoPro Hero 7 WiFi Preview Stream
+const GOPRO_STREAM_URL = "http://10.5.5.9:8080/live/amba.m3u8";
+const GOPRO_WIDTH = 1920;  // GoPro 1080p resolution
+const GOPRO_HEIGHT = 1080;
+
 // Pi Camera Stream - Auto-detect Pi IP from current page URL
 const PI_HOST = window.location.hostname || "172.20.10.4";
 const PI_PORT = window.location.port || "8001";
 const PI_STREAM_URL = `http://${PI_HOST}:${PI_PORT}/stream`;
 const PI_GPS_URL = `http://${PI_HOST}:${PI_PORT}/gps`;
+const PI_WIDTH = 1280;   // Pi camera resolution
+const PI_HEIGHT = 720;
 
 const TRACK_LAP_KM = 3.7;  // Lusail short circuit
 const PACKET_MIN_MS = 90;   // ~11 FPS UI update rate
@@ -960,9 +971,125 @@ let currentCameraSource = 'usb'; // 'usb' or 'ribbon'
 let cameraRetryCount = 0;
 const MAX_CAMERA_RETRIES = 10;
 const CAMERA_RETRY_DELAY_MS = 2000;
+let hlsInstance = null; // Store HLS instance for GoPro
 
 function initCamera() {
-    const imgElement = document.getElementById('cameraStream');
+    if (USE_GOPRO) {
+        initGoProStream();
+    } else {
+        initPiCamera();
+    }
+    initOverlayCanvas();
+    console.log(`Camera initialized: ${USE_GOPRO ? 'GoPro Hero 7' : 'Raspberry Pi'}`);
+}
+
+/* ====== GOPRO HERO 7 STREAM (HLS) ====== */
+function initGoProStream() {
+    const videoElement = document.getElementById('cameraStream');
+    if (!videoElement) {
+        console.warn('Video element not found');
+        return;
+    }
+
+    console.log('Initializing GoPro Hero 7 WiFi stream...');
+    console.log('GoPro URL:', GOPRO_STREAM_URL);
+    console.log('Make sure phone is connected to GoPro WiFi network');
+
+    if (Hls.isSupported()) {
+        // Use HLS.js for browsers that don't natively support HLS
+        hlsInstance = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 90,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 20,
+            liveSyncDurationCount: 3
+        });
+
+        hlsInstance.loadSource(GOPRO_STREAM_URL);
+        hlsInstance.attachMedia(videoElement);
+
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('GoPro stream manifest loaded');
+            videoElement.play().then(() => {
+                videoElement.style.display = 'block';
+                console.log('GoPro stream playing');
+            }).catch(err => {
+                console.error('Autoplay failed (user interaction may be required):', err);
+                // Show a "tap to play" message
+                showPlayButton(videoElement);
+            });
+        });
+
+        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS Error:', data.type, data.details);
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.error('Network error - retrying in 3s...');
+                        setTimeout(() => {
+                            hlsInstance.loadSource(GOPRO_STREAM_URL);
+                        }, 3000);
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.error('Media error - attempting recovery...');
+                        hlsInstance.recoverMediaError();
+                        break;
+                    default:
+                        console.error('Fatal error - destroying HLS instance');
+                        hlsInstance.destroy();
+                        break;
+                }
+            }
+        });
+
+    } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS support
+        console.log('Using native HLS support (Safari)');
+        videoElement.src = GOPRO_STREAM_URL;
+        videoElement.addEventListener('loadedmetadata', () => {
+            videoElement.play().then(() => {
+                videoElement.style.display = 'block';
+                console.log('GoPro stream playing (native)');
+            }).catch(err => {
+                console.error('Autoplay failed:', err);
+                showPlayButton(videoElement);
+            });
+        });
+    } else {
+        console.error('HLS not supported in this browser');
+        alert('Your browser does not support HLS streaming. Please use Chrome, Safari, or Firefox.');
+    }
+}
+
+function showPlayButton(videoElement) {
+    const playBtn = document.createElement('button');
+    playBtn.textContent = '▶ TAP TO START CAMERA';
+    playBtn.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 255, 136, 0.9);
+        color: black;
+        border: none;
+        padding: 20px 40px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        border-radius: 12px;
+        cursor: pointer;
+        z-index: 9999;
+    `;
+    playBtn.onclick = () => {
+        videoElement.play();
+        playBtn.remove();
+    };
+    document.querySelector('.video-container').appendChild(playBtn);
+}
+
+/* ====== RASPBERRY PI CAMERA STREAM (MJPEG) ====== */
+function initPiCamera() {
+    const imgElement = document.getElementById('cameraStreamImg');
     if (!imgElement) {
         console.warn('Camera stream element not found');
         return;
@@ -1027,8 +1154,7 @@ function initCamera() {
     }, 3000);
 
     setupCameraToggle();
-    initOverlayCanvas();
-    console.log('Camera initialized with retry logic');
+    console.log('Pi Camera initialized with retry logic');
 }
 
 function setupCameraToggle() {

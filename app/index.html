@@ -19,6 +19,9 @@
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
+    <!-- HLS.js for GoPro stream playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
     <!-- Custom Styles -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -26,10 +29,11 @@
 <body>
     <!-- Video + Overlay Container -->
     <div class="video-container">
-        <!-- Raspberry Pi USB Camera MJPEG Stream (background layer) -->
-        <!-- URL set dynamically by script.js based on current hostname -->
-        <!-- Note: onerror removed - handled in script.js with retry logic -->
-        <img id="cameraStream" class="camera-feed" src="" alt="Pi USB Camera Stream" style="display:none;">
+        <!-- Camera Stream: GoPro Hero 7 (WiFi Preview) or Pi Camera (MJPEG) -->
+        <!-- Supports both video (HLS/GoPro) and img (MJPEG/Pi) elements -->
+        <!-- Video source configured in script.js based on USE_GOPRO setting -->
+        <video id="cameraStream" class="camera-feed" autoplay muted playsinline style="display:none;"></video>
+        <img id="cameraStreamImg" class="camera-feed" src="" alt="Camera Stream" style="display:none;">
         <!-- Canvas overlay for racing line -->
         <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
     </div>
