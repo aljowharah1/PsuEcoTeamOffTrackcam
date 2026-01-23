@@ -22,7 +22,7 @@ const RACING_LINE_API = "https://psu-eco-team-off-trackcam-i5pq.vercel.app/api/r
 
 // ====== CAMERA CONFIGURATION ======
 // Camera options: 'dji', 'gopro', 'pi'
-const CAMERA_TYPE = 'gopro';  // Using GoPro Hero 7 WiFi streaming
+const CAMERA_TYPE = 'dji';  // Back to DJI Action 3 - troubleshooting USB
 
 // DJI Osmo Action 3 Configuration
 // Device: OsmoAction3-38614A | Password: 50ec7a5e
