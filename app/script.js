@@ -1121,19 +1121,57 @@ async function initDJIUSBWebcam() {
     console.log('Initializing DJI Osmo Action 3 USB Webcam...');
 
     try {
-        // Request USB camera access
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // Enumerate all available cameras
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        console.log('Available cameras:', videoDevices);
+
+        // Look for external USB camera (DJI)
+        // External cameras usually have labels like "USB Camera", "DJI", "UVC", or don't contain "front/back"
+        let targetDeviceId = null;
+
+        for (const device of videoDevices) {
+            const label = device.label.toLowerCase();
+            console.log(`Found camera: ${device.label} (ID: ${device.deviceId})`);
+
+            // Prefer cameras with these keywords (DJI, USB, UVC, External)
+            if (label.includes('dji') || label.includes('osmo') || label.includes('action')) {
+                targetDeviceId = device.deviceId;
+                console.log('✓ Found DJI camera:', device.label);
+                break;
+            } else if (label.includes('usb') || label.includes('uvc') || label.includes('external')) {
+                targetDeviceId = device.deviceId;
+                console.log('✓ Found USB camera:', device.label);
+                break;
+            }
+        }
+
+        // If no external camera found, use the last camera (usually external USB)
+        if (!targetDeviceId && videoDevices.length > 1) {
+            targetDeviceId = videoDevices[videoDevices.length - 1].deviceId;
+            console.log('Using last camera (likely external):', videoDevices[videoDevices.length - 1].label);
+        }
+
+        // Request camera access with specific device ID
+        const constraints = {
             video: {
                 width: { ideal: DJI_WIDTH },
                 height: { ideal: DJI_HEIGHT },
-                facingMode: 'environment'  // Prefer back/action camera
+                deviceId: targetDeviceId ? { exact: targetDeviceId } : undefined
             },
             audio: false
-        });
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
         mediaStream = stream;
         videoElement.srcObject = stream;
         videoElement.style.display = 'block';
+
+        // Log which camera was actually selected
+        const track = stream.getVideoTracks()[0];
+        console.log('✓ Using camera:', track.label);
 
         videoElement.onloadedmetadata = () => {
             videoElement.play().then(() => {
@@ -1150,9 +1188,31 @@ async function initDJIUSBWebcam() {
             alert('DJI camera not found. Make sure it\'s connected via USB and in webcam mode.');
         } else if (error.name === 'NotAllowedError') {
             alert('Camera permission denied. Please allow camera access and refresh.');
+        } else if (error.name === 'OverconstrainedError') {
+            alert('Camera constraints not supported. Trying fallback...');
+            // Fallback: try without device ID constraint
+            initDJIUSBWebcamFallback();
         } else {
             alert('Failed to connect to DJI camera: ' + error.message);
         }
+    }
+}
+
+// Fallback function if specific device selection fails
+async function initDJIUSBWebcamFallback() {
+    const videoElement = document.getElementById('cameraStream');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: DJI_WIDTH }, height: { ideal: DJI_HEIGHT } },
+            audio: false
+        });
+        mediaStream = stream;
+        videoElement.srcObject = stream;
+        videoElement.style.display = 'block';
+        videoElement.play();
+        console.log('Using fallback camera selection');
+    } catch (err) {
+        console.error('Fallback also failed:', err);
     }
 }
 
