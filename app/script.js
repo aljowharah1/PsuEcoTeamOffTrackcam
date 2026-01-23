@@ -26,7 +26,8 @@ const CAMERA_TYPE = 'dji';  // Change this to switch cameras
 
 // DJI Osmo Action 3 Configuration
 // Device: OsmoAction3-38614A | Password: 50ec7a5e
-const DJI_USB_WEBCAM = true;  // true = USB webcam (phone keeps internet!) | false = WiFi (no internet!)
+// Using Android phone with USB webcam mode for best performance
+const DJI_USB_WEBCAM = true;  // true = USB webcam (Android) | false = WiFi streaming
 const DJI_WIFI_STREAM_URL = "rtsp://192.168.42.1:8554/live";  // DJI WiFi stream
 const DJI_WIFI_NAME = "OsmoAction3-38614A";  // Your DJI WiFi network name
 const DJI_WIFI_PASS = "50ec7a5e";            // Your DJI WiFi password
