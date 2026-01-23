@@ -1216,6 +1216,67 @@ async function initDJIUSBWebcamFallback() {
     }
 }
 
+// Camera switcher - cycles through available cameras
+let currentCameraIndex = 0;
+let availableCameras = [];
+
+async function switchUSBCamera() {
+    const videoElement = document.getElementById('cameraStream');
+
+    try {
+        // Get all video devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        availableCameras = devices.filter(d => d.kind === 'videoinput');
+
+        if (availableCameras.length === 0) {
+            alert('No cameras found!');
+            return;
+        }
+
+        // Cycle to next camera
+        currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+        const targetCamera = availableCameras[currentCameraIndex];
+
+        console.log(`Switching to camera ${currentCameraIndex + 1}/${availableCameras.length}:`, targetCamera.label);
+
+        // Stop current stream
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+        }
+
+        // Start new stream with selected camera
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                deviceId: { exact: targetCamera.deviceId },
+                width: { ideal: DJI_WIDTH },
+                height: { ideal: DJI_HEIGHT }
+            },
+            audio: false
+        });
+
+        mediaStream = stream;
+        videoElement.srcObject = stream;
+        videoElement.play();
+
+        // Show which camera is active
+        const track = stream.getVideoTracks()[0];
+        alert(`Now using: ${track.label}`);
+        console.log('✓ Switched to:', track.label);
+
+    } catch (error) {
+        console.error('Camera switch failed:', error);
+        alert('Failed to switch camera: ' + error.message);
+    }
+}
+
+// Show camera selector button if using DJI USB mode
+if (CAMERA_TYPE === 'dji' && DJI_USB_WEBCAM) {
+    window.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('cameraSelectorBtn');
+        if (btn) btn.style.display = 'block';
+    });
+}
+
 /* ====== DJI OSMO ACTION 3 WIFI STREAM (RTSP) ====== */
 function initDJIWiFiStream() {
     const videoElement = document.getElementById('cameraStream');
