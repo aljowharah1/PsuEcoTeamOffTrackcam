@@ -21,8 +21,17 @@ const RACING_LINE_API = "https://psu-eco-team-off-trackcam-i5pq.vercel.app/api/r
 // const RACING_LINE_API = "http://localhost:3000/api/racing_line"; // For local testing
 
 // ====== CAMERA CONFIGURATION ======
-// Set to true for GoPro Hero 7, false for Raspberry Pi camera
-const USE_GOPRO = true;
+// Camera options: 'dji', 'gopro', 'pi'
+const CAMERA_TYPE = 'dji';  // Change this to switch cameras
+
+// DJI Osmo Action 3 Configuration
+// Device: OsmoAction3-38614A | Password: 50ec7a5e
+const DJI_USB_WEBCAM = false;  // true = USB webcam mode, false = WiFi streaming
+const DJI_WIFI_STREAM_URL = "rtsp://192.168.42.1:8554/live";  // DJI WiFi stream
+const DJI_WIFI_NAME = "OsmoAction3-38614A";  // Your DJI WiFi network name
+const DJI_WIFI_PASS = "50ec7a5e";            // Your DJI WiFi password
+const DJI_WIDTH = 1920;   // DJI 1080p resolution
+const DJI_HEIGHT = 1080;
 
 // GoPro Hero 7 WiFi Preview Stream
 const GOPRO_STREAM_URL = "http://10.5.5.9:8080/live/amba.m3u8";
@@ -971,16 +980,29 @@ let currentCameraSource = 'usb'; // 'usb' or 'ribbon'
 let cameraRetryCount = 0;
 const MAX_CAMERA_RETRIES = 10;
 const CAMERA_RETRY_DELAY_MS = 2000;
-let hlsInstance = null; // Store HLS instance for GoPro
+let hlsInstance = null; // Store HLS instance for GoPro/streaming
+let mediaStream = null; // Store MediaStream for DJI USB
 
 function initCamera() {
-    if (USE_GOPRO) {
-        initGoProStream();
-    } else {
-        initPiCamera();
+    switch(CAMERA_TYPE) {
+        case 'dji':
+            if (DJI_USB_WEBCAM) {
+                initDJIUSBWebcam();
+            } else {
+                initDJIWiFiStream();
+            }
+            break;
+        case 'gopro':
+            initGoProStream();
+            break;
+        case 'pi':
+            initPiCamera();
+            break;
+        default:
+            console.error('Invalid CAMERA_TYPE:', CAMERA_TYPE);
     }
     initOverlayCanvas();
-    console.log(`Camera initialized: ${USE_GOPRO ? 'GoPro Hero 7' : 'Raspberry Pi'}`);
+    console.log(`Camera initialized: ${CAMERA_TYPE.toUpperCase()}${CAMERA_TYPE === 'dji' && DJI_USB_WEBCAM ? ' (USB Webcam)' : ''}`);
 }
 
 /* ====== GOPRO HERO 7 STREAM (HLS) ====== */
@@ -1085,6 +1107,106 @@ function showPlayButton(videoElement) {
         playBtn.remove();
     };
     document.querySelector('.video-container').appendChild(playBtn);
+}
+
+/* ====== DJI OSMO ACTION 3 USB WEBCAM MODE ====== */
+async function initDJIUSBWebcam() {
+    const videoElement = document.getElementById('cameraStream');
+    if (!videoElement) {
+        console.warn('Video element not found');
+        return;
+    }
+
+    console.log('Initializing DJI Osmo Action 3 USB Webcam...');
+
+    try {
+        // Request USB camera access
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: DJI_WIDTH },
+                height: { ideal: DJI_HEIGHT },
+                facingMode: 'environment'  // Prefer back/action camera
+            },
+            audio: false
+        });
+
+        mediaStream = stream;
+        videoElement.srcObject = stream;
+        videoElement.style.display = 'block';
+
+        videoElement.onloadedmetadata = () => {
+            videoElement.play().then(() => {
+                console.log('DJI USB webcam streaming');
+            }).catch(err => {
+                console.error('Autoplay failed:', err);
+                showPlayButton(videoElement);
+            });
+        };
+
+    } catch (error) {
+        console.error('Failed to access DJI USB camera:', error);
+        if (error.name === 'NotFoundError') {
+            alert('DJI camera not found. Make sure it\'s connected via USB and in webcam mode.');
+        } else if (error.name === 'NotAllowedError') {
+            alert('Camera permission denied. Please allow camera access and refresh.');
+        } else {
+            alert('Failed to connect to DJI camera: ' + error.message);
+        }
+    }
+}
+
+/* ====== DJI OSMO ACTION 3 WIFI STREAM (RTSP) ====== */
+function initDJIWiFiStream() {
+    const videoElement = document.getElementById('cameraStream');
+    if (!videoElement) {
+        console.warn('Video element not found');
+        return;
+    }
+
+    console.log('Initializing DJI Osmo Action 3 WiFi stream...');
+    console.log('DJI URL:', DJI_WIFI_STREAM_URL);
+    console.log('Make sure phone is connected to DJI camera WiFi');
+
+    // RTSP streaming requires additional library or browser extension
+    // Most browsers don't support RTSP natively
+
+    if (typeof RTSPtoWebRTC !== 'undefined') {
+        // If RTSPtoWebRTC library is loaded
+        const rtspPlayer = new RTSPtoWebRTC(DJI_WIFI_STREAM_URL, videoElement);
+        rtspPlayer.play();
+    } else {
+        // Fallback: Try using HLS if DJI provides HLS endpoint
+        console.warn('RTSP not directly supported in browser');
+        console.log('Attempting HLS fallback...');
+
+        const hlsUrl = DJI_WIFI_STREAM_URL.replace('rtsp://', 'http://').replace(':8554', ':8080') + '/hls/stream.m3u8';
+
+        if (Hls.isSupported()) {
+            hlsInstance = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+            hlsInstance.loadSource(hlsUrl);
+            hlsInstance.attachMedia(videoElement);
+
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoElement.play().then(() => {
+                    videoElement.style.display = 'block';
+                    console.log('DJI WiFi stream playing (HLS)');
+                }).catch(err => {
+                    console.error('Autoplay failed:', err);
+                    showPlayButton(videoElement);
+                });
+            });
+
+            hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+                console.error('DJI Stream Error:', data);
+                alert('Failed to connect to DJI WiFi stream. Use DJI Mimo app to verify stream URL, or enable USB webcam mode instead.');
+            });
+        } else {
+            alert('Browser does not support DJI WiFi streaming. Please use USB webcam mode instead (set DJI_USB_WEBCAM = true).');
+        }
+    }
 }
 
 /* ====== RASPBERRY PI CAMERA STREAM (MJPEG) ====== */
